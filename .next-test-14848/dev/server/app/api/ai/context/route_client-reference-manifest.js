@@ -1,0 +1,1 @@
+globalThis.__RSC_MANIFEST=(globalThis.__RSC_MANIFEST||{});globalThis.__RSC_MANIFEST["/api/ai/context/route"]={"moduleLoading":{"prefix":"/_next/"},"ssrModuleMapping":{},"edgeSSRModuleMapping":{},"clientModules":{},"entryCSSFiles":{"D:\\My Skill Practice\\HACKATHONS\\NASA CHALLENGE\\crewcare\\src\\app\\api\\ai\\context\\route":[]},"rscModuleMapping":{},"edgeRscModuleMapping":{}};

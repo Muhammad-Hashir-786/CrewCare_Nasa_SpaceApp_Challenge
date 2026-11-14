@@ -1,0 +1,491 @@
+// Crew Care - Prisma Schema v3
+// Demo data only — all astronaut data is fictional and simulated
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+enum Role {
+  ASTRONAUT
+  MISSION_CONTROL
+  MEDICAL_OFFICER
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum AssessmentStatus {
+  GREEN
+  AMBER
+  RED
+}
+
+// Phase 3: four-level category aligned with spec
+enum HealthCategory {
+  NORMAL
+  ATTENTION
+  WARNING
+  CRITICAL
+}
+
+enum MoodLevel {
+  VERY_LOW
+  LOW
+  NEUTRAL
+  GOOD
+  EXCELLENT
+}
+
+enum FatigueLevel {
+  EXHAUSTED
+  VERY_TIRED
+  TIRED
+  MODERATE
+  REFRESHED
+}
+
+enum MeasurementSource {
+  MANUAL_ENTRY
+  SIMULATED_SENSOR
+  WEARABLE
+}
+
+enum RecommendationStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  DISMISSED
+}
+
+enum RecommendationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum AnalyticsDirection {
+  INSUFFICIENT
+  INCREASING
+  DECREASING
+  STABLE
+}
+
+enum AnalyticsPriority {
+  LOW
+  MODERATE
+  HIGH
+}
+
+enum AnomalyDetectionMethod {
+  ROBUST_Z_SCORE
+  INTERQUARTILE_RANGE
+}
+
+enum AnomalySeverity {
+  LOW
+  MODERATE
+  HIGH
+}
+
+// ── Models ────────────────────────────────────────────────────────────────────
+
+model User {
+  id            String         @id @default(cuid())
+  name          String
+  callsign      String         @unique
+  email         String         @unique
+  role          Role
+  rank          String?
+  specialty     String?
+  avatarUrl     String?
+  missionId     String?
+  mission       Mission?       @relation(fields: [missionId], references: [id])
+  healthRecords HealthRecord[]
+  dailyCheckIns DailyCheckIn[]
+  assessments   Assessment[]
+  alerts        Alert[]        @relation("AstroAlerts")
+  activityLogs  ActivityLog[]
+  // Phase 3
+  measurements        HealthMeasurement[]
+  healthAssessments   HealthAssessment[]
+  recommendations     HealthRecommendation[]
+  analyticsReports    AnalyticsReport[]
+  healthBaselines     HealthBaseline[]
+  healthTrends        HealthTrend[]
+  healthAnomalies     HealthAnomaly[]
+  healthPatterns      HealthPattern[]
+  healthForecasts     HealthForecast[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([missionId])
+  @@index([role])
+}
+
+model Mission {
+  id          String    @id @default(cuid())
+  name        String
+  code        String    @unique
+  description String?
+  startDate   DateTime
+  endDate     DateTime?
+  crew        User[]
+  analyticsReports AnalyticsReport[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model HealthRecord {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  recordedAt    DateTime      @default(now())
+  heartRate     Float?
+  systolicBP    Float?
+  diastolicBP   Float?
+  bodyTemp      Float?
+  bloodGlucose  Float?
+  oxygenSat     Float?
+  sleepDuration Float?
+  sleepQuality  Float?
+  mood          MoodLevel?
+  fatigue       FatigueLevel?
+  stressLevel   Float?
+  anxietyLevel  Float?
+  symptoms      String?
+  symptomSeverity String?
+  notes         String?
+  isMeasured    Boolean       @default(false)
+  isSimulated   Boolean       @default(false)
+  assessments   Assessment[]
+  anomalies     HealthAnomaly[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([recordedAt])
+}
+
+model DailyCheckIn {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  checkInDate    DateTime     @default(now())
+  mood           MoodLevel?
+  fatigue        FatigueLevel?
+  sleepDuration  Float?
+  sleepQuality   Float?
+  stressLevel    Float?
+  anxietyLevel   Float?
+  symptoms       String?
+  symptomSeverity String?
+  notes          String?
+  overallFeeling Int?
+  createdAt      DateTime     @default(now())
+
+  @@index([userId])
+  @@index([checkInDate])
+}
+
+model Assessment {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id])
+  healthRecordId String?
+  healthRecord   HealthRecord?    @relation(fields: [healthRecordId], references: [id])
+  status         AssessmentStatus
+  summary        String
+  details        String?
+  guidance       String?
+  flags          String[]
+  createdAt      DateTime         @default(now())
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Alert {
+  id             String        @id @default(cuid())
+  userId         String
+  astronaut      User          @relation("AstroAlerts", fields: [userId], references: [id])
+  severity       AlertSeverity
+  status         AlertStatus   @default(ACTIVE)
+  title          String
+  message        String
+  metric         String?
+  value          Float?
+  threshold      Float?
+  acknowledgedAt DateTime?
+  acknowledgedBy String?
+  resolvedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([severity])
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  details   String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ── Phase 3 Models ────────────────────────────────────────────────────────────
+
+// Individual typed measurements — one row per indicator per submission
+model HealthMeasurement {
+  id          String            @id @default(cuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id])
+  indicator   String            // "heartRate" | "systolicBP" | "bodyTemp" etc.
+  value       Float
+  unit        String
+  source      MeasurementSource @default(MANUAL_ENTRY)
+  recordedAt  DateTime          @default(now())
+  notes       String?
+  // Link back to the batch submission record
+  healthAssessmentId String?
+  healthAssessment   HealthAssessment? @relation(fields: [healthAssessmentId], references: [id])
+  createdAt   DateTime          @default(now())
+
+  @@index([userId])
+  @@index([indicator])
+  @@index([recordedAt])
+}
+
+// A complete assessment run — one row per check-in submission
+model HealthAssessment {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id])
+  overallCategory  HealthCategory
+  overallStatus    String          // "GREEN" | "AMBER" | "RED"  (maps to AssessmentStatus)
+  summary          String
+  details          String?
+  guidance         String?
+  flags            String[]
+  hasEmergency     Boolean         @default(false)
+  dataCompleteness Float           @default(0) // 0.0–1.0
+  confidence       Float           @default(0) // 0.0–1.0
+  assessedAt       DateTime        @default(now())
+  // Relations
+  measurements     HealthMeasurement[]
+  findings         AssessmentFinding[]
+  recommendations  HealthRecommendation[]
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([overallCategory])
+  @@index([assessedAt])
+}
+
+// One finding per indicator that triggered a rule
+model AssessmentFinding {
+  id                 String           @id @default(cuid())
+  healthAssessmentId String
+  healthAssessment   HealthAssessment @relation(fields: [healthAssessmentId], references: [id], onDelete: Cascade)
+  indicator          String           // which health indicator
+  category           HealthCategory
+  ruleKey            String           // which rule fired
+  value              Float?
+  unit               String?
+  threshold          Float?
+  explanation        String
+  createdAt          DateTime         @default(now())
+
+  @@index([healthAssessmentId])
+  @@index([indicator])
+}
+
+// Actionable recommendations attached to an assessment
+model HealthRecommendation {
+  id                 String                 @id @default(cuid())
+  userId             String
+  user               User                   @relation(fields: [userId], references: [id])
+  healthAssessmentId String?
+  healthAssessment   HealthAssessment?      @relation(fields: [healthAssessmentId], references: [id])
+  title              String
+  description        String
+  priority           RecommendationPriority
+  indicator          String?
+  reason             String
+  suggestedAction    String
+  status             RecommendationStatus   @default(ACTIVE)
+  acknowledgedAt     DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([priority])
+}
+
+// Phase 4 snapshots are versioned by reportId so recalculation preserves prior evidence.
+model AnalyticsReport {
+  id                String           @id @default(cuid())
+  userId            String?
+  user              User?            @relation(fields: [userId], references: [id])
+  missionId         String?
+  mission           Mission?         @relation(fields: [missionId], references: [id])
+  generatedAt       DateTime          @default(now())
+  sourceRecordCount Int               @default(0)
+  isSimulated       Boolean           @default(false)
+  payload           Json
+  baselines         HealthBaseline[]
+  trends            HealthTrend[]
+  anomalies         HealthAnomaly[]
+  patterns          HealthPattern[]
+  forecasts         HealthForecast[]
+  createdAt         DateTime          @default(now())
+
+  @@index([userId, generatedAt])
+  @@index([missionId, generatedAt])
+}
+
+model HealthBaseline {
+  id                String          @id @default(cuid())
+  reportId          String
+  report            AnalyticsReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User            @relation(fields: [userId], references: [id])
+  indicator         String
+  label             String
+  unit              String
+  measurementCount  Int
+  minimumRequired   Int
+  sufficient        Boolean
+  mean              Float?
+  median            Float?
+  standardDeviation Float?
+  minimum           Float?
+  maximum           Float?
+  rollingAverage    Float?
+  interpretation    String?
+  calculatedAt      DateTime        @default(now())
+
+  @@unique([reportId, indicator])
+  @@index([userId, indicator, calculatedAt])
+}
+
+model HealthTrend {
+  id               String            @id @default(cuid())
+  reportId         String
+  report           AnalyticsReport   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User              @relation(fields: [userId], references: [id])
+  indicator        String
+  label            String
+  unit             String
+  period           String
+  measurementCount Int
+  expectedDays     Int?
+  completeness     Float
+  startingValue    Float?
+  latestValue      Float?
+  average          Float?
+  percentChange    Float?
+  direction        AnalyticsDirection
+  explanation      String
+  generatedAt      DateTime          @default(now())
+
+  @@unique([reportId, indicator, period])
+  @@index([userId, indicator, generatedAt])
+}
+
+model HealthAnomaly {
+  id                String                 @id @default(cuid())
+  reportId          String
+  report            AnalyticsReport        @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User                   @relation(fields: [userId], references: [id])
+  sourceRecordId    String?
+  sourceRecord      HealthRecord?          @relation(fields: [sourceRecordId], references: [id])
+  indicator         String
+  label             String
+  unit              String
+  actualValue       Float
+  expectedMinimum   Float
+  expectedMaximum   Float
+  method            AnomalyDetectionMethod
+  severity          AnomalySeverity
+  deviationScore    Float
+  recordedAt        DateTime
+  repeated          Boolean                @default(false)
+  explanation       String
+  createdAt         DateTime               @default(now())
+
+  @@unique([reportId, sourceRecordId, indicator])
+  @@index([userId, indicator, recordedAt])
+  @@index([userId, severity, recordedAt])
+}
+
+model HealthPattern {
+  id                String          @id @default(cuid())
+  reportId          String
+  report            AnalyticsReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User            @relation(fields: [userId], references: [id])
+  category          String
+  priority          AnalyticsPriority
+  indicators        String[]
+  startDate         DateTime?
+  endDate           DateTime?
+  reliability       Float
+  evidence          Json
+  explanation       String
+  suggestedFollowUp String
+  createdAt         DateTime        @default(now())
+
+  @@index([userId, priority, createdAt])
+  @@index([userId, category, createdAt])
+}
+
+model HealthForecast {
+  id                String          @id @default(cuid())
+  reportId          String
+  report            AnalyticsReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User            @relation(fields: [userId], references: [id])
+  indicator         String
+  label             String
+  unit              String
+  method            String
+  forecastDate      DateTime
+  projectedValue    Float
+  lowerBound        Float
+  upperBound        Float
+  confidence        Float
+  sourcePoints      Int
+  sourceStart       DateTime
+  sourceEnd         DateTime
+  explanation       String
+  createdAt         DateTime        @default(now())
+
+  @@unique([reportId, indicator, forecastDate])
+  @@index([userId, indicator, forecastDate])
+}

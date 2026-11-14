@@ -1,0 +1,29 @@
+# NASA Challenge and Scientific References
+
+Review date: 2026-11-14. Crew Care uses no NASA health dataset in the running application. The following sources inform the problem framing and future data selection; all crew records in the app are fictional, generated demo records.
+
+## Challenge alignment
+
+The [2026 astronaut health-monitoring challenge](https://www.spaceappschallenge.org/2026/challenges/health-monitoring-software/) asks teams to build software that gathers health indicators and enables astronauts to evaluate and act on their health status. Crew Care demonstrates daily check-ins, rule-based status explanations, personal history, and Mission Control review. The available implementation is a prototype and does not provide clinical or flight-certified decision support.
+
+The official [2026 Space Apps overview](https://www.spaceappschallenge.org/2026/) gives the global event period as November 14–15, 2026, and the project submission close as November 15 at 11:59 PM local time. Local-event requirements and judging schedules can add earlier steps; teams must verify their own event page and project form. Some local pages explicitly require use of a NASA data source for Global Award eligibility. Crew Care currently has no such dataset integration, so that eligibility condition is not claimed as met.
+
+## Sources considered
+
+| Source | Description and relevant fields | Use in Crew Care | License / access / limitations |
+|---|---|---|---|
+| [NASA Human Research Program](https://www.nasa.gov/hrp/) | Program overview on astronaut health/performance research, human-health countermeasures, behavioral health, and spaceflight hazards. | Problem framing only; no records or thresholds imported. | Web content is not a dataset license. Follow source-specific media/content guidance; do not imply NASA endorsement or validation. |
+| [NASA HRP Ongoing Research](https://www.nasa.gov/hrp/ongoing-hrp-research/) | Summaries of studies including ARCHeR wellbeing/activity/sleep, CIPHER multi-system research, and Standard Measures research. | Informs which topics are relevant to long missions (sleep, behavior, cardiovascular indicators). No study results are used to generate app rules. | Narrative research summaries, not directly ingestible health measurements. Follow NASA media guidance for any copied media. |
+| [NASA Open Science Data Repository (OSDR)](https://osdr.nasa.gov/) | NASA describes OSDR as providing access to human cellular and non-human life-science data. Dataset-specific metadata may include omics, biospecimens, experiments, and mission/analog details. | Reviewed as a potential source; not integrated because current demo schema is daily operational check-ins and OSDR data are not equivalent to real-time individual vital signs. | Check the license and attribution on each dataset. NASA's [Science Data Portal license guidance](https://science.data.nasa.gov/about/license) explains that data can have dataset-specific terms; NASA-led observations are generally CC0 only when no restrictions apply. |
+| [NASA Life Sciences Portal](https://nlsp.nasa.gov/) | NASA describes access to human research data from spaceflight and ground-analog studies dating back to 1961. Fields and access rules vary by study. | Not integrated. Human research data may be governed by study-specific access, privacy, or consent conditions and do not automatically constitute a live astronaut monitoring feed. | Review study-level access, terms, and privacy requirements before reuse. No dataset-specific license has been selected or verified for this project. |
+| [NASA Spaceflight Standard Measures (NTRS PDF)](https://ntrs.nasa.gov/api/citations/20230014025/downloads/SSM%20IWS24%20Spaceflight%20Standard%20Measures.pdf) | Research-measure overview includes sleep/wake, cognition, immune status, blood/urine chemistry, cardiovascular structure/function, sensorimotor function, sleep quality, and team processes. | Reference only to demonstrate mission-related measurement domains. No values, thresholds, or findings are encoded. | Technical publication; check the document's specific reuse/attribution terms before republishing content. It does not validate Crew Care's thresholds. |
+| [NASA media usage guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/) | Guidelines for NASA images, media, logos, identifiers, and endorsement claims. | No NASA image, logo, or insignia is currently included. | NASA notes that content can include third-party material and NASA identifiers are protected. Review the item-specific notice; never imply NASA endorsement. |
+
+## Data provenance and scientific limits
+
+- There is no live feed, actual astronaut record, imported NASA value, or NASA-trained model in this application.
+- The four demo histories are deterministic synthetic scenarios and are visibly labeled simulated.
+- NASA reference topics are context, not sources for model-generated health facts.
+- Statistical personal-baseline deviations and the configured Phase 3 rules are not validated clinical thresholds.
+- Any future NASA data integration must record the exact dataset identifier, version/date, field mapping, license/terms, citation, preprocessing, and known limitations. Avoid using restricted or identifiable human records without proper authorization.
+- NASA has not reviewed, endorsed, certified, or medically validated Crew Care.
