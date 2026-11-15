@@ -1,186 +1,78 @@
 import Link from "next/link";
-import { ChevronRight, AlertTriangle, Users } from "lucide-react";
-import { DEMO_ASTRONAUTS, DEMO_MISSION } from "@/lib/demo-data";
+import { AlertTriangle, ArrowRight, Bell, Users } from "lucide-react";
+import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
+import type { Alert, Astronaut, HealthRecord } from "@/types";
+import styles from "./mission-control.module.css";
 
-function statusColor(s?: string) {
-  if (s === "GREEN") return "#10b981";
-  if (s === "AMBER") return "#f59e0b";
-  if (s === "RED")   return "#ef4444";
-  return "var(--teal)";
+type AlertWithCrew = Alert & { astronaut: Astronaut };
+const priority: Record<Alert["severity"], number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+const dateTime = (value: Date | string) => new Date(value).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+function statusText(status?: string) { return status === "RED" ? "Act now" : status === "AMBER" ? "Needs review" : "All clear"; }
+function statusClass(status?: string) { return status === "RED" ? styles.statusRed : status === "AMBER" ? styles.statusAmber : styles.statusGreen; }
+function readingVerdict(value: number | null | undefined, min: number, max?: number) {
+  if (value == null) return "Not recorded";
+  return value < min ? "Low" : max !== undefined && value > max ? "High" : "Within range";
+}
+function bpVerdict(record?: HealthRecord) {
+  if (!record || record.systolicBP == null) return "Not recorded";
+  if (record.systolicBP < 90 || (record.diastolicBP ?? 0) < 60) return "Low";
+  if (record.systolicBP > 130 || (record.diastolicBP ?? 0) > 85) return "High";
+  return "Within range";
 }
 
 export default function MissionControlDashboard() {
-  // The mission dashboard and /select both use this canonical demo roster.
-  // Keeping it synchronous prevents an empty database from producing a false
-  // zero-crew state or a flash of empty summary counts while the page loads.
-  const astronauts = DEMO_ASTRONAUTS.map((member) => ({ ...member, isSimulated: true }));
-  const activeAlerts = astronauts.flatMap((member) => (member.activeAlerts ?? [])
-    .filter((alert) => alert.status === "ACTIVE")
-    .map((alert) => ({ ...alert, astronaut: member })))
-    .sort((a, b) => {
-      const urgency = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 } as const;
-      return urgency[a.severity] - urgency[b.severity] || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-  const needsAttention = astronauts.filter(
-    (a) => a.latestAssessment?.status === "AMBER" || a.latestAssessment?.status === "RED"
-  );
+  // Shared canonical fictional roster: deterministic on every open/reload.
+  const crew = DEMO_ASTRONAUTS;
+  const needsReview = crew.filter((member) => member.latestAssessment?.status === "AMBER" || member.latestAssessment?.status === "RED");
+  const alerts: AlertWithCrew[] = crew.flatMap((astronaut) => (astronaut.activeAlerts ?? []).filter((alert) => alert.status === "ACTIVE").map((alert) => ({ ...alert, astronaut })))
+    .sort((a, b) => priority[a.severity] - priority[b.severity] || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const clearCount = crew.filter((member) => (member.latestAssessment?.status ?? "GREEN") === "GREEN").length;
 
-  return (
-    <>
-      {/* Header row */}
-      <div style={{ marginBottom: 28 }}>
-        <p className="section-kicker">{DEMO_MISSION.code} · {astronauts.every((a) => a.isSimulated) ? "ALL DATA SIMULATED" : "CREW HEALTH OVERVIEW"}</p>
-        <h1 style={{ margin: "0 0 6px", font: "500 28px/1.2 Manrope", letterSpacing: "-0.025em" }}>
-          {DEMO_MISSION.name}
-        </h1>
-        <p style={{ margin: 0, color: "#77908d", fontSize: 12 }}>
-          Crew health overview · {astronauts.length} crew members
-        </p>
-      </div>
+  return <div className={styles.dashboard}>
+    <header className={styles.pageHeader}><div><p className={styles.kicker}>CREWCARE · MISSION OPERATIONS</p><h1>Mission Control</h1><p>Crew health overview · {crew.length} crew members · All data simulated.</p></div><span className={styles.demoTag}><i/> Simulated data</span></header>
 
-      {/* Stats strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 10, marginBottom: 28 }}>
-        {[
-          { label: "TOTAL CREW",    value: astronauts.length, color: "var(--teal)" },
-          { label: "STATUS GREEN",  value: astronauts.filter((a) => a.latestAssessment?.status === "GREEN").length, color: "#10b981" },
-          { label: "NEEDS REVIEW",  value: needsAttention.length, color: needsAttention.length ? "#f59e0b" : "#10b981" },
-          { label: "ACTIVE ALERTS", value: activeAlerts.length, color: activeAlerts.length ? "#ef4444" : "#10b981" },
-        ].map((s) => (
-          <div key={s.label} className="card" style={{ padding: "14px 16px" }}>
-            <span className="section-kicker">{s.label}</span>
-            <strong style={{ display: "block", marginTop: 6, font: "600 26px Manrope", color: s.color }}>
-              {s.value}
-            </strong>
-          </div>
-        ))}
-      </div>
+    <section className={styles.summaryGrid} aria-label="Crew summary">
+      {[
+        { label: "Total crew", value: crew.length },
+        { label: "All clear", value: clearCount },
+        { label: "Needs review", value: needsReview.length },
+        { label: "Active alerts", value: alerts.length },
+      ].map((item) => <article className={styles.summaryCard} key={item.label}><span>{item.label}</span><strong>{item.value}</strong></article>)}
+    </section>
 
-      {/* Needs attention banner */}
-      {needsAttention.length > 0 && (
-        <div style={{
-          padding: "11px 16px", marginBottom: 24,
-          background: "rgba(245,158,11,0.06)",
-          border: "1px solid rgba(245,158,11,0.25)", borderRadius: 8,
-          display: "flex", alignItems: "center", gap: 12,
-        }}>
-          <AlertTriangle size={16} strokeWidth={1.7} style={{ color: "#f59e0b", flexShrink: 0 }} />
-          <div>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", letterSpacing: "0.06em" }}>NEEDS ATTENTION — </span>
-            <span style={{ fontSize: 12, color: "#a8c5c1" }}>
-              {needsAttention.map((a) => a.callsign).join(", ")} · Review their health profiles
-            </span>
-          </div>
-        </div>
-      )}
+    {needsReview.map((member) => <section className={styles.attentionBanner} key={member.id}><AlertTriangle size={20}/><p><strong>{member.name} needs a review</strong><span>{member.latestAssessment?.summary ?? "Review the latest recorded health information."}</span></p><Link href={`/mission-control/crew/${member.id}`}>View profile <ArrowRight size={16}/></Link></section>)}
 
-      {/* Two-column layout */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20, alignItems: "start" }}>
+    <div className={styles.contentGrid}>
+      <section>
+        <div className={styles.sectionHeading}><Users size={19}/><div><h2>Crew overview</h2><p>Four crew profiles · latest recorded measurements</p></div></div>
+        <div className={styles.crewGrid}>{crew.map((member) => {
+          const latest = member.healthRecords?.at(-1);
+          const alertCount = (member.activeAlerts ?? []).filter((alert) => alert.status === "ACTIVE").length;
+          return <Link key={member.id} href={`/mission-control/crew/${member.id}`} className={styles.crewLink}><article className={styles.crewCard}>
+            <div className={styles.crewIdentity}><div className={styles.avatar}>{member.name.split(/\s+/).map((word) => word[0]).join("").slice(0, 2).toUpperCase()}</div><div><h3>{member.name}</h3><p>{member.callsign} <span>·</span> {[member.rank, member.specialty].filter(Boolean).join(" · ")}</p></div></div>
+            <span className={`${styles.status} ${statusClass(member.latestAssessment?.status)}`}><i/>{statusText(member.latestAssessment?.status)}</span>
+            <div className={styles.vitals}>
+              <Reading label="HR" value={latest?.heartRate != null ? `${latest.heartRate} bpm` : "—"} verdict={readingVerdict(latest?.heartRate, 50, 100)}/>
+              <Reading label="BP" value={latest?.systolicBP != null ? `${latest.systolicBP}/${latest.diastolicBP ?? "—"} mmHg` : "—"} verdict={bpVerdict(latest)}/>
+              <Reading label="SpO₂" value={latest?.oxygenSat != null ? `${latest.oxygenSat}%` : "—"} verdict={readingVerdict(latest?.oxygenSat, 95, 100)}/>
+            </div>
+            <div className={styles.cardFooter}><span>{alertCount ? <><Bell size={15}/>{alertCount} active alert{alertCount === 1 ? "" : "s"}</> : "No active alerts"}</span><b>Open profile <ArrowRight size={15}/></b></div>
+          </article></Link>;
+        })}</div>
+      </section>
 
-        {/* Crew grid */}
-        <section>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-            <Users size={15} strokeWidth={1.7} style={{ color: "var(--teal)" }} />
-            <span className="section-kicker" style={{ margin: 0 }}>CREW OVERVIEW</span>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
-            {astronauts.map((a) => {
-              const latest = a.healthRecords?.slice(-1)[0];
-              const sc = statusColor(a.latestAssessment?.status);
-              const activeCount = (a.activeAlerts ?? []).filter((x) => x.status === "ACTIVE").length;
-              return (
-                <Link key={a.id} href={`/mission-control/crew/${a.id}`} style={{ textDecoration: "none" }}>
-                  <article className="card" style={{
-                    padding: "18px 18px 14px",
-                    borderTop: `3px solid ${sc}`,
-                    cursor: "pointer", transition: "0.15s",
-                  }}>
-                    {/* Name row */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-                      <div>
-                        <p style={{ margin: "0 0 2px", font: "600 14px Manrope", color: "#edf8f8" }}>{a.name}</p>
-                        <p style={{ margin: 0, fontSize: 10, color: "var(--teal)", fontWeight: 600, letterSpacing: "0.08em" }}>{a.callsign}</p>
-                      </div>
-                      {a.latestAssessment && (
-                        <span className={`status-badge status-${a.latestAssessment.status.toLowerCase()}`} style={{ fontSize: 9 }}>
-                          {a.latestAssessment.status}
-                        </span>
-                      )}
-                    </div>
-                    <p style={{ margin: "0 0 12px", fontSize: 11, color: "var(--muted)" }}>
-                      {a.rank} · {a.specialty}
-                    </p>
+      <aside className={styles.alertPanel}>
+        <div className={styles.alertHeading}><div><h2>Recent alerts</h2><p>Active crew alerts, most urgent first</p></div><Link href="/mission-control/alerts" aria-label="View all alerts"><ArrowRight size={18}/></Link></div>
+        {alerts.length ? <div className={styles.alertList}>{alerts.map((alert) => <article className={styles.alertItem} key={alert.id}><div className={styles.alertMeta}><span>{alert.astronaut.name} · {alert.astronaut.callsign}</span><time>{dateTime(alert.createdAt)}</time></div><h3>{alert.title}</h3><p>{alert.message}</p><small>{alert.severity.toLowerCase()} priority · active</small></article>)}</div> : <p className={styles.noAlerts}>No recent alerts — all clear.</p>}
+        <p className={styles.panelSafety}>CrewCare is not a doctor — this is guidance until professional help arrives.</p>
+      </aside>
+    </div>
+    <p className={styles.footerNote}>All crew records and thresholds are simulated for demonstration; this is not a medical device.</p>
+  </div>;
+}
 
-                    {/* Quick vitals */}
-                    {latest && (
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-                        {[
-                          { label: "HR", val: latest.heartRate?.toFixed(0), unit: "BPM", warn: (latest.heartRate ?? 0) > 100 },
-                          { label: "BP",  val: latest.systolicBP != null ? `${latest.systolicBP}/${latest.diastolicBP}` : null, unit: "", warn: (latest.systolicBP ?? 0) > 130 },
-                          { label: "SpO₂", val: latest.oxygenSat?.toFixed(0), unit: "%", warn: (latest.oxygenSat ?? 100) < 95 },
-                        ].map((v) => (
-                          <div key={v.label} style={{ textAlign: "center", padding: "7px 4px", background: "rgba(255,255,255,0.025)", borderRadius: 6 }}>
-                            <div style={{ fontSize: 8, color: "var(--muted)", letterSpacing: "0.06em", marginBottom: 3 }}>{v.label}</div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: v.warn ? "#f59e0b" : "#edf8f8" }}>
-                              {v.val ?? "—"}
-                              {v.unit && <span style={{ fontSize: 9, fontWeight: 400, color: "var(--muted)", marginLeft: 1 }}>{v.unit}</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      {activeCount > 0 ? (
-                        <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
-                          <AlertTriangle size={12} strokeWidth={1.7} /> {activeCount} alert{activeCount > 1 ? "s" : ""}
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: 11, color: "var(--muted)" }}>No active alerts</span>
-                      )}
-                      <span style={{ fontSize: 11, color: "var(--teal)", display: "flex", alignItems: "center", gap: 3 }}>
-                        Profile <ChevronRight size={12} strokeWidth={1.7} />
-                      </span>
-                    </div>
-                  </article>
-                </Link>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Alerts sidebar */}
-        <section style={{ position: "sticky", top: 90 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <span className="section-kicker" style={{ margin: 0 }}>RECENT ALERTS</span>
-            <Link href="/mission-control/alerts" style={{ fontSize: 11, color: "var(--teal)", display: "flex", alignItems: "center", gap: 3 }}>
-              All <ChevronRight size={12} strokeWidth={1.7} />
-            </Link>
-          </div>
-          <div style={{ display: "grid", gap: 10 }}>
-            {activeAlerts.slice(0, 5).map((alert) => {
-              const bc = alert.severity === "HIGH" || alert.severity === "CRITICAL" ? "#ef4444"
-                : alert.severity === "MEDIUM" ? "#f59e0b" : "#10b981";
-              return (
-                <article key={alert.id} className="card" style={{ padding: "11px 13px", borderLeft: `3px solid ${bc}` }}>
-                  <div style={{ display: "flex", gap: 6, marginBottom: 5, flexWrap: "wrap", alignItems: "center" }}>
-                    <span className={`status-badge status-${alert.severity.toLowerCase()}`} style={{ fontSize: 9 }}>{alert.severity}</span>
-                    <span className={`status-badge status-${alert.status.toLowerCase()}`} style={{ fontSize: 9 }}>{alert.status}</span>
-                    <span style={{ fontSize: 10, color: "var(--teal)", fontWeight: 600 }}>{alert.astronaut.callsign}</span>
-                  </div>
-                  <p style={{ margin: "0 0 3px", fontSize: 12, fontWeight: 600, color: "#edf8f8" }}>{alert.title}</p>
-                  <p style={{ margin: 0, fontSize: 11, color: "var(--muted)", lineHeight: 1.4 }}>{alert.message}</p>
-                </article>
-              );
-            })}
-            {activeAlerts.length === 0 && <div className="card" style={{ padding: "14px 13px", color: "var(--muted)", fontSize: 12 }}>No active alerts — all clear.</div>}
-          </div>
-
-          {/* Disclaimer */}
-          <p style={{ marginTop: 16, fontSize: 10, color: "#3e5a57", lineHeight: 1.5 }}>
-            ⚠ {astronauts.every((a) => a.isSimulated) ? "All crew records are fictional and simulated. " : "This demonstration portal is not authenticated. "}Thresholds are illustrative; not a medical device.
-          </p>
-        </section>
-      </div>
-    </>
-  );
+function Reading({ label, value, verdict }: { label: string; value: string; verdict: string }) {
+  const isOut = verdict === "High" || verdict === "Low";
+  return <div className={styles.reading}><span>{label}</span><strong>{value}</strong>{isOut && <small>{verdict}</small>}</div>;
 }

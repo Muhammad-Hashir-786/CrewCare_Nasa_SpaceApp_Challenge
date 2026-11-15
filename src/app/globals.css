@@ -723,3 +723,4 @@
 @keyframes emergency-pulse { 50% { opacity: .5; transform: scale(.82); } }
 @media (max-width: 560px) { .emergency-main { padding: 25px 14px 36px; } .emergency-input-row { grid-template-columns: 1fr; } .emergency-controls { justify-content: stretch; } .emergency-control { flex: 1; } }
 @media (prefers-reduced-motion: reduce) { .emergency-pulse { animation: none; } }
+.emergency-aid-dashboard-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(330px,.9fr);align-items:start;gap:16px;margin:0 0 16px}.emergency-aid-dashboard-grid>.first-aid-card{margin:0}.emergency-aid-dashboard-grid .first-aid-steps{margin-bottom:20px}@media(max-width:1000px){.emergency-aid-dashboard-grid{grid-template-columns:minmax(0,1fr) minmax(280px,.78fr);gap:10px}}@media(max-width:760px){.emergency-aid-dashboard-grid{grid-template-columns:1fr}}

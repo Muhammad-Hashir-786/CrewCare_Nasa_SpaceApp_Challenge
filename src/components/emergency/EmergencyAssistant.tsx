@@ -7,6 +7,7 @@ import { EMERGENCY_TYPES, getFirstAidSteps, getSpaceRiskNote, SAMPLE_MEDICAL_KIT
 import type { EmergencyScreen } from "@/lib/emergency/decision-support";
 import type { HealthRecord } from "@/types";
 import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
+import { BodyTrendDashboard } from "@/components/health/BodyTrendDashboard";
 
 type RecognitionEvent = { results: ArrayLike<ArrayLike<{ transcript: string }>> };
 type RecognitionLike = { lang: string; interimResults: boolean; maxAlternatives: number; onresult: ((event: RecognitionEvent) => void) | null; onerror: ((event: { error?: string }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void; abort: () => void };
@@ -50,6 +51,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   const [selectedType, setSelectedType] = useState<EmergencyType | null>(null);
   const [selectedCrewId, setSelectedCrewId] = useState("");
   const [someoneElse, setSomeoneElse] = useState(false);
+  const [storedCrewRecords, setStoredCrewRecords] = useState<Record<string, HealthRecord[]>>({});
   const [startedAt, setStartedAt] = useState<Date | null>(null);
   const [screen, setScreen] = useState<EmergencyScreen>(defaultScreen);
   const [doneSteps, setDoneSteps] = useState<boolean[]>([]);
@@ -77,7 +79,24 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   const stepsPanelRef = useRef<HTMLElement>(null);
   const startedClock = useRef<number | null>(null);
   const selectedCrew = (DEMO_ASTRONAUTS.find((member) => member.id === selectedCrewId) as CrewProfile | undefined) ?? null;
-  const history = selectedCrew?.id === context?.astronautId && context?.healthRecords?.length ? context.healthRecords : selectedCrew?.healthRecords ?? [];
+  useEffect(() => {
+    if (!selectedCrewId) return;
+    const timer = window.setTimeout(() => {
+      const crewMember = DEMO_ASTRONAUTS.find((person) => person.id === selectedCrewId);
+      if (!crewMember) return;
+      try {
+        const local = JSON.parse(window.localStorage.getItem(`crewcare_checkins_${selectedCrewId}`) ?? "[]") as HealthRecord[];
+        if (Array.isArray(local)) {
+          const merged = new Map((crewMember.healthRecords ?? []).map((record) => [record.id, record]));
+          local.filter((record) => record?.id && record.userId === selectedCrewId).forEach((record) => merged.set(record.id, record));
+          setStoredCrewRecords((previous) => ({ ...previous, [selectedCrewId]: [...merged.values()].sort((a,b)=>new Date(a.recordedAt).getTime()-new Date(b.recordedAt).getTime()) }));
+        }
+      } catch { /* Retain the shared demo roster if browser data cannot be read. */ }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [selectedCrewId]);
+  const selectedCrewHistory = selectedCrew ? storedCrewRecords[selectedCrew.id] ?? selectedCrew.healthRecords ?? [] : [];
+  const history = selectedCrew?.id === context?.astronautId && context?.healthRecords?.length ? context.healthRecords : selectedCrewHistory;
   const latest = history.at(-1);
   const selectedAssessment = selectedCrew && selectedCrew.id === context?.astronautId ? context?.latestAssessment ?? selectedCrew.latestAssessment : selectedCrew?.latestAssessment;
   const selectedAlerts = selectedCrew && selectedCrew.id === context?.astronautId ? context?.activeAlerts ?? [] : selectedCrew?.activeAlerts ?? [];
@@ -302,7 +321,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
         {selectedType && <>
           <section className="live-situation-summary emergency-card" aria-live="polite" aria-label="Live situation summary"><div className="live-summary-title"><Clipboard size={19}/><strong>Live situation summary</strong><span>SIMULATED DATA</span></div><p>{situationSummary}</p><div className="emergency-quick-checks">{TRIAGE_QUESTIONS.map(({ key, label }) => <div className="quick-check-row" key={key}><strong>{label}</strong><div>{(["YES", "NO"] as const).map((value) => <button key={value} type="button" aria-pressed={screen[key] === value} className={`quick-answer ${screen[key] === value ? "selected" : ""}`} onClick={() => updateScreen(key, value)}>{value === "YES" ? "Yes" : "No"}</button>)}</div></div>)}</div><p className="live-summary-support">If another crew member is present, they can alert mission control while you continue these steps.</p><button type="button" className="copy-summary-button" onClick={() => void copySummary()}><Clipboard size={15}/> Copy summary</button></section>
 
-          <section ref={stepsPanelRef} className="first-aid-card emergency-card" aria-label={`${emergency?.label} first-aid steps`}><div className="emergency-active-banner">ACT NOW · {emergency?.label}</div><div className="first-aid-card-heading"><div><span className="section-kicker">SIMULATED FIRST-AID GUIDANCE</span><h2>What to do right now</h2></div><span className="steps-count">{doneSteps.filter(Boolean).length}/{steps.length} done</span></div>
+          <div className="emergency-aid-dashboard-grid"><section ref={stepsPanelRef} className="first-aid-card emergency-card" aria-label={`${emergency?.label} first-aid steps`}><div className="emergency-active-banner">ACT NOW · {emergency?.label}</div><div className="first-aid-card-heading"><div><span className="section-kicker">SIMULATED FIRST-AID GUIDANCE</span><h2>What to do right now</h2></div><span className="steps-count">{doneSteps.filter(Boolean).length}/{steps.length} done</span></div>
             {getSpaceRiskNote(selectedType) && <p className="space-risk-note"><strong>Why this matters in space:</strong> {getSpaceRiskNote(selectedType)}</p>}
             {!selectedCrew && <p className="who-with-first-step">Who is this for? You can choose a crew member above; first aid is already starting.</p>}
             {selectedType === "collapsed" && <div className="pace-cue" aria-label="CPR pace cue 110 compressions per minute"><span className="pace-cue-dot"/><div><strong>CPR pace cue · 110/min</strong><small>About 2 pushes each second</small></div><span className="pace-cue-beat"/></div>}
@@ -314,7 +333,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
               {(allergy === "YES" || storedAspirinAllergy) && <p className="medicine-no-dose">No aspirin for this person. Continue the physical steps.</p>}
             </section>}
             <p className="first-aid-safety-line">{localSafetyLine}</p><p className="first-aid-help-note">Final step: Alert mission control / contact mission medical support as soon as the channel allows. A crewmate can do this in parallel while first aid continues.</p><a className="first-aid-source" href={sourceUrl} target="_blank" rel="noreferrer">Reference: NASA / first-aid guidance</a>
-          </section>
+          </section><BodyTrendDashboard mode="emergency" person={selectedCrew} records={selectedCrew ? history : []} assessmentStatus={selectedCrew ? selectedAssessment?.status : null} emergencyType={selectedType} onEmergencyPartClick={() => stepsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}/></div>
         </>}
 
         <section className="emergency-help-actions emergency-card"><div><strong>Use another channel in parallel</strong><p>Ask a crewmate to contact mission control while first aid continues. No alert is transmitted by this app.</p></div><button className="emergency-screen-submit emergency-support-button" type="button" onClick={requestMedicalSupport}>{requestStatus === "LOCAL_REQUEST_RECORDED" ? "Request recorded on this screen" : "Record a local support request"}</button></section>
