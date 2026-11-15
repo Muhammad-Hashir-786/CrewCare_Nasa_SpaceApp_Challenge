@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { AlertOctagon, ArrowLeft, Check, ChevronRight, Clipboard, Mic, MicOff, Send, Volume2, VolumeX } from "lucide-react";
+import { AlertOctagon, ArrowLeft, Check, ChevronRight, Clipboard, Mic, MicOff, Send, Settings, Volume2, VolumeX } from "lucide-react";
 import { EMERGENCY_TYPES, getFirstAidSteps, getSpaceRiskNote, SAMPLE_MEDICAL_KIT, type EmergencyType } from "@/lib/emergency/first-aid-guidance";
 import type { EmergencyScreen } from "@/lib/emergency/decision-support";
 import type { HealthRecord } from "@/types";
@@ -11,6 +11,8 @@ import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import { BodyTrendDashboard } from "@/components/health/BodyTrendDashboard";
 import { useMicrophoneLevel } from "@/hooks/useMicrophoneLevel";
 import { useAstronaut } from "@/lib/astronaut-context";
+import { useNovaVoice } from "@/hooks/useNovaVoice";
+import { NovaVoicePicker } from "@/components/ui/NovaVoicePicker";
 import type { AIHealthResponse } from "@/lib/ai/ai-types";
 import { APP_NOW_ISO, formatAppDate, formatAppDateTime, mergeDailyRecords } from "@/lib/health/checkin-store";
 
@@ -101,19 +103,19 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   const [analysisUpdated, setAnalysisUpdated] = useState(false);
   const [voiceState, setVoiceState] = useState<VoiceState>("IDLE");
   const [elapsed, setElapsed] = useState(0);
-  const speechRate = 0.92;
+  const nova = useNovaVoice();
+  const [showVoicePicker, setShowVoicePicker] = useState(false);
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState("");
   const [requestStatus, setRequestStatus] = useState<"NOT_REQUESTED" | "LOCAL_REQUEST_RECORDED">("NOT_REQUESTED");
-  const [novaMuted, setNovaMuted] = useState(false);
+  const novaMuted = nova.muted;
   const micLevel = useMicrophoneLevel();
   const stopMicrophone = micLevel.stop;
   const recognition = useRef<RecognitionLike | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const voiceInteraction = useRef(false);
   const handsFreeActive = useRef(false);
-  const mutedRef = useRef(false);
   const welcomePending = useRef(false);
   const novaInputRef = useRef<HTMLTextAreaElement>(null);
   const novaFormRef = useRef<HTMLFormElement>(null);
@@ -167,43 +169,38 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - (startedClock.current ?? Date.now())) / 1000)), 1000);
     return () => window.clearInterval(timer);
   }, [open]);
-  useEffect(() => () => { recognition.current?.abort(); micLevel.stop(); if (typeof window !== "undefined") window.speechSynthesis?.cancel(); }, [micLevel.stop]);
+  useEffect(() => () => { recognition.current?.abort(); micLevel.stop(); nova.cancel(); }, [micLevel.stop, nova]);
 
-  const speak = (value: string, chain = false) => {
-    if (mutedRef.current) return;
-    if (!("speechSynthesis" in window)) { setVoiceState("CONNECTION_ERROR"); setError("Voice playback is unavailable. The written steps remain on screen."); return; }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(value); utterance.rate = speechRate;
-    utterance.onstart = () => setVoiceState("SPEAKING");
-    utterance.onend = () => {
-      if (chain && handsFreeActive.current && currentStep < steps.length - 1) {
-        const next = currentStep + 1;
-        setCurrentStep(next);
-        const step = steps[next];
-        speak(`Step ${next + 1}. ${step.title}. ${step.instruction}`, true);
-      }
-      else { if (chain) setHandsFree(false); setVoiceState("WAITING"); }
-    };
-    utterance.onerror = () => { setVoiceState("CONNECTION_ERROR"); setHandsFree(false); };
-    window.speechSynthesis.speak(utterance);
-  };
-  const sayCurrentStep = (chain = false) => {
-    if (!steps[currentStep]) return;
-    speak(`Step ${currentStep + 1}. ${steps[currentStep].title}. ${steps[currentStep].instruction}`, chain);
-  };
+  // Auto-speak whenever the current step index changes.
+  // stepSpokenForRef prevents double-speaking on initial mount (step 0).
+  const stepSpokenForRef = useRef<number>(-1);
+  useEffect(() => {
+    if (!selectedType || !steps.length) return;
+    if (currentStep === stepSpokenForRef.current) return;
+    stepSpokenForRef.current = currentStep;
+    if (steps[currentStep]) {
+      speak(`Step ${currentStep + 1}. ${steps[currentStep].title}. ${steps[currentStep].instruction}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep, selectedType]);
+
+  const speak = useCallback((value: string, _chain = false) => {
+    nova.speak(value);
+    setVoiceState("SPEAKING");
+    // Chain mode is handled by the step-advance effects below.
+  }, [nova]);
+  const sayCurrentStep = useCallback((stepIndex?: number) => {
+    const idx = stepIndex ?? currentStep;
+    if (!steps[idx]) return;
+    speak(`Step ${idx + 1}. ${steps[idx].title}. ${steps[idx].instruction}`);
+  }, [speak, currentStep, steps]);
   const speakWelcome = useCallback(() => {
     welcomePending.current = true;
     if (!("speechSynthesis" in window)) { setVoiceState("CONNECTION_ERROR"); setError("Voice playback is unavailable. The written steps remain on screen."); return; }
-    try {
-      window.speechSynthesis.cancel();
-      const greeting = new SpeechSynthesisUtterance("What happened? Tell me, or tap a situation below.");
-      greeting.rate = 0.94;
-      greeting.onstart = () => { welcomePending.current = false; setVoiceState("SPEAKING"); };
-      greeting.onend = () => setVoiceState("WAITING");
-      greeting.onerror = () => { setVoiceState("CONNECTION_ERROR"); welcomePending.current = true; };
-      window.speechSynthesis.speak(greeting);
-    } catch { setVoiceState("CONNECTION_ERROR"); welcomePending.current = true; }
-  }, []);
+    welcomePending.current = false;
+    nova.speak("What happened? Tell me, or tap a situation below.");
+    setVoiceState("SPEAKING");
+  }, [nova]);
   useEffect(() => {
     if (!fullPage) return;
     const timer = window.setTimeout(speakWelcome, 0);
@@ -211,13 +208,13 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   }, [fullPage, speakWelcome]);
   const retryWelcomeFromGesture = () => { if (welcomePending.current && !novaMuted) speakWelcome(); };
   const resetSession = () => {
-    window.speechSynthesis?.cancel(); recognition.current?.abort(); micLevel.stop(); handsFreeActive.current = false; mutedRef.current = false; welcomePending.current = false; setNovaMuted(false); setOpen(true); setSelectedType(null); setSelectedCrewId(""); setSomeoneElse(false); setStartedAt(null); setScreen(defaultScreen); setDoneSteps([]); setCurrentStep(0); setHandsFree(false);
+    nova.cancel(); recognition.current?.abort(); micLevel.stop(); handsFreeActive.current = false; welcomePending.current = false; nova.setMuted(false); setOpen(true); setSelectedType(null); setSelectedCrewId(""); setSomeoneElse(false); setStartedAt(null); setScreen(defaultScreen); setDoneSteps([]); setCurrentStep(0); setHandsFree(false);
     setAllergy(null); setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false); setTestResults({}); setUpdatedAnalysis(null); setAnalysisUpdated(false); setAnalyzingTests(false); setError(""); setMessages([]); setText(""); setElapsed(0);
     setRequestStatus("NOT_REQUESTED"); setVoiceState("IDLE"); voiceInteraction.current = false;
     speakWelcome();
   };
   const chooseEmergency = (type: EmergencyType) => {
-    window.speechSynthesis?.cancel(); handsFreeActive.current = false; setSelectedType(type); setStartedAt(new Date(APP_NOW_ISO)); setDoneSteps([]); setCurrentStep(0); setHandsFree(false); setError("");
+    nova.cancel(); handsFreeActive.current = false; setSelectedType(type); setStartedAt(new Date(APP_NOW_ISO)); setDoneSteps([]); setCurrentStep(0); setHandsFree(false); setError("");
     setAllergy(type === "chest-pain" && knownAllergies ? storedAspirinAllergy ? "YES" : "NO" : null); setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false); setTestResults({}); setUpdatedAnalysis(null); setAnalysisUpdated(false);
     setScreen({ responsive: type === "collapsed" ? "NO" : "", breathingNormally: "", severeBleeding: type === "heavy-bleeding" ? "YES" : "" });
     setVoiceState("WAITING");
@@ -243,11 +240,16 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     }
   };
   const nextStep = () => {
-    window.speechSynthesis?.cancel(); handsFreeActive.current = false; setHandsFree(false); setCurrentStep((previous) => Math.min(steps.length - 1, previous + 1)); setVoiceState("WAITING");
+    nova.cancel(); handsFreeActive.current = false; setHandsFree(false);
+    setCurrentStep((previous) => {
+      const next = Math.min(steps.length - 1, previous + 1);
+      return next;
+    });
+    setVoiceState("WAITING");
   };
   const toggleHandsFree = () => {
-    if (handsFree) { handsFreeActive.current = false; window.speechSynthesis?.cancel(); setHandsFree(false); setVoiceState("INTERRUPTED"); return; }
-    handsFreeActive.current = true; setHandsFree(true); sayCurrentStep(true);
+    if (handsFree) { handsFreeActive.current = false; nova.cancel(); setHandsFree(false); setVoiceState("INTERRUPTED"); return; }
+    handsFreeActive.current = true; setHandsFree(true); sayCurrentStep();
   };
   const stopListening = () => { recognition.current?.stop(); micLevel.stop(); if (voiceState === "LISTENING") setVoiceState("INTERRUPTED"); };
   const listen = async () => {
@@ -301,25 +303,29 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     if (!startedAt || typeChanged) setStartedAt(new Date(APP_NOW_ISO));
     if (procedureChanged) { setDoneSteps([]); setCurrentStep(0); setHandsFree(false); handsFreeActive.current = false; }
     setSelectedType(activeType);
-    setScreen((previous) => {
-      const base = typeChanged ? {
+    const newScreen: EmergencyScreen = (() => {
+      const base: EmergencyScreen = typeChanged ? {
         responsive: activeType === "collapsed" ? "NO" : "",
         breathingNormally: "",
         severeBleeding: activeType === "heavy-bleeding" ? "YES" : "",
-      } : previous;
+      } : screen;
       return { ...base, ...(breathingFromReport ? { breathingNormally: breathingFromReport } : {}) };
-    });
+    })();
+    setScreen(newScreen);
     if (typeChanged) {
       setTestResults({}); setUpdatedAnalysis(null); setAnalysisUpdated(false);
       if (activeType === "chest-pain" && knownAllergies) setAllergy(storedAspirinAllergy ? "YES" : "NO");
       else setAllergy(null);
       setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false);
     }
-    setVoiceState("PROCESSING");
+    // Show the procedure immediately and scroll — do not wait for the API.
     const effectiveBreathing = breathingFromReport ?? breathingAnswer;
     const firstAction = getFirstAidSteps(activeType, effectiveBreathing)[0];
+    setText("");
+    setVoiceState("PROCESSING");
     if (firstAction) speak(`First step. ${firstAction.title}. ${firstAction.instruction}`);
-    window.setTimeout(() => stepsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+    // Scroll after React has rendered the new selectedType panel.
+    window.setTimeout(() => stepsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     const demoState = selectedCrew ? {
       astronautId: selectedCrew.id,
       records: history.slice(-180).map((record) => ({
@@ -342,9 +348,9 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
       })),
     } : undefined;
     const activeScreen = {
-      responsive: activeType === "collapsed" ? "NO" : screen.responsive || "UNKNOWN",
-      breathingNormally: effectiveBreathing || screen.breathingNormally || "UNKNOWN",
-      severeBleeding: activeType === "heavy-bleeding" ? "YES" : screen.severeBleeding || "UNKNOWN",
+      responsive: activeType === "collapsed" ? "NO" : newScreen.responsive || "UNKNOWN",
+      breathingNormally: effectiveBreathing || newScreen.breathingNormally || "UNKNOWN",
+      severeBleeding: activeType === "heavy-bleeding" ? "YES" : newScreen.severeBleeding || "UNKNOWN",
     };
     const activeSteps = getFirstAidSteps(activeType, effectiveBreathing);
     try {
@@ -356,13 +362,13 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "AI follow-up is unavailable. Your local first-aid steps remain on screen.");
       const references = Array.isArray(payload.evidenceReferences) && payload.evidenceReferences.length ? `References: ${payload.evidenceReferences.map((item: { label: string; timestamp: string | null }) => `${item.label}${item.timestamp ? ` · ${formatAppDate(item.timestamp)}` : ""}`).join("; ")}.` : "";
-      const matchedSituation = `ACT NOW · ${EMERGENCY_TYPES.find((item) => item.id === activeType)?.label ?? "Emergency"}. The numbered first-aid procedure is shown below.`;
+      const matchedSituation = `ACT NOW · ${EMERGENCY_TYPES.find((item) => item.id === activeType)?.label ?? "Emergency"}. The numbered first-aid procedure is shown above.`;
       const assistantReply = [matchedSituation, payload.reply, references, payload.nextQuestion ? `One quick question: ${payload.nextQuestion}` : "", localSafetyLine, "SIMULATED DATA · Follow the displayed first-aid steps and confirm all actions against the current mission kit and approved procedures."].filter(Boolean).join("\n\n");
       addMessage("assistant", assistantReply); speak(assistantReply); setText("");
     } catch (cause) {
       const fallback = cause instanceof Error ? cause.message : "AI follow-up is unavailable.";
       setError(`${fallback} The local ${emergency?.label.toLowerCase() ?? "first-aid"} steps remain available above; continue with them and the approved mission kit.`);
-      addMessage("assistant", `ACT NOW · ${EMERGENCY_TYPES.find((item) => item.id === activeType)?.label ?? "Emergency"}. The numbered first-aid procedure is shown below.\n\nAI follow-up is unavailable. Continue with the numbered first-aid steps shown on this screen.\n\n${localSafetyLine}\n\nSIMULATED DATA. The application has not contacted anyone.`);
+      addMessage("assistant", `ACT NOW · ${EMERGENCY_TYPES.find((item) => item.id === activeType)?.label ?? "Emergency"}. The numbered first-aid procedure is shown above.\n\nAI follow-up is unavailable. Continue with the numbered first-aid steps shown on this screen.\n\n${localSafetyLine}\n\nSIMULATED DATA. The application has not contacted anyone.`);
       setVoiceState("CONNECTION_ERROR");
     }
   };
@@ -446,14 +452,11 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     setVoiceState("WAITING");
   };
   const toggleNovaMute = () => {
-    const next = !mutedRef.current;
-    mutedRef.current = next;
-    setNovaMuted(next);
-    if (next) { window.speechSynthesis?.cancel(); welcomePending.current = false; setVoiceState("INTERRUPTED"); }
-    else if (selectedType) sayCurrentStep();
-    else speakWelcome();
+    const next = !nova.muted;
+    nova.setMuted(next);
+    if (!next) { if (selectedType) sayCurrentStep(); else speakWelcome(); }
   };
-  const close = useCallback(() => { recognition.current?.abort(); stopMicrophone(); window.speechSynthesis?.cancel(); handsFreeActive.current = false; welcomePending.current = false; setHandsFree(false); setVoiceState("IDLE"); if (fullPage) router.push(exitHref); else setOpen(false); }, [exitHref, fullPage, router, stopMicrophone]);
+  const close = useCallback(() => { recognition.current?.abort(); stopMicrophone(); nova.cancel(); handsFreeActive.current = false; welcomePending.current = false; setHandsFree(false); setVoiceState("IDLE"); if (fullPage) router.push(exitHref); else setOpen(false); }, [exitHref, fullPage, nova, router, stopMicrophone]);
 
   useEffect(() => { setMounted(true); }, []);
 

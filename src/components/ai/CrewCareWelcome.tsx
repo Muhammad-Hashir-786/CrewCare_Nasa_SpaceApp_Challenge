@@ -1,96 +1,41 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Volume2, VolumeX } from "lucide-react";
+import { ArrowRight, Settings, VolumeX, Volume2 } from "lucide-react";
 import styles from "./CrewCareWelcome.module.css";
+import { useNovaVoice } from "@/hooks/useNovaVoice";
+import { NovaVoicePicker } from "@/components/ui/NovaVoicePicker";
 
 const welcomeLine =
   "Welcome to CrewCare, your astronaut health care system. Hello, I'm Nova — I'll look after your health out here.";
 const helloLine = "Hello! Ready when you are.";
 
-const speechSupported = typeof window !== "undefined" && "speechSynthesis" in window;
-
 export function CrewCareWelcome() {
   const router = useRouter();
-  const [muted, setMuted] = useState(false);
+  const nova = useNovaVoice();
   const [waving, setWaving] = useState(false);
-  const [greeting, setGreeting] = useState(welcomeLine);
-  // Only show the speech-unavailable note if the API is genuinely absent.
-  const [speechMissing, setSpeechMissing] = useState(false);
-  const pendingAutoplayRef = useRef(false);
-  const hasSpokenRef = useRef(false);
+  const [showPicker, setShowPicker] = useState(false);
 
-  const speakText = useCallback(
-    (text: string, isAutoplay = false) => {
-      if (!speechSupported) {
-        setSpeechMissing(true);
-        return;
-      }
-      if (muted) return;
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.96;
-      utterance.pitch = 1.03;
-      // SpeechSynthesis on some browsers returns an error for autoplay before
-      // interaction. We catch it and arm a one-shot click listener instead.
-      utterance.onerror = (ev) => {
-        if (isAutoplay && (ev.error === "not-allowed" || ev.error === "interrupted")) {
-          pendingAutoplayRef.current = true;
-        }
-      };
-      window.speechSynthesis.speak(utterance);
-    },
-    [muted]
-  );
-
-  // Attempt autoplay on mount.
+  // Speak welcome on mount (waits for voices internally).
   useEffect(() => {
-    if (muted) return;
-    hasSpokenRef.current = false;
-    // Small timeout lets the page paint first so the browser is more likely
-    // to allow speech (some browsers block before first paint).
-    const id = window.setTimeout(() => {
-      speakText(welcomeLine, true);
-    }, 120);
-    return () => window.clearTimeout(id);
-    // Run once on mount.
+    const id = window.setTimeout(() => nova.speak(welcomeLine), 120);
+    return () => { window.clearTimeout(id); nova.cancel(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fallback: if autoplay was blocked, speak on first user interaction.
-  useEffect(() => {
-    const handleFirstInteraction = () => {
-      if (pendingAutoplayRef.current && !hasSpokenRef.current && !muted) {
-        pendingAutoplayRef.current = false;
-        hasSpokenRef.current = true;
-        speakText(welcomeLine);
-      }
-    };
-    window.addEventListener("pointerdown", handleFirstInteraction, { once: true });
-    window.addEventListener("keydown", handleFirstInteraction, { once: true });
-    return () => {
-      window.removeEventListener("pointerdown", handleFirstInteraction);
-      window.removeEventListener("keydown", handleFirstInteraction);
-    };
-  }, [muted, speakText]);
-
-  const dismiss = useCallback(() => {
-    if (speechSupported) window.speechSynthesis.cancel();
+  const dismiss = () => {
+    nova.cancel();
     router.push("/home");
-  }, [router]);
+  };
 
   const handleNovaTap = () => {
-    setGreeting(welcomeLine);
     setWaving(true);
     window.setTimeout(() => setWaving(false), 900);
-    speakText(helloLine);
+    nova.speak(helloLine);
   };
 
-  const toggleMute = () => {
-    if (!muted && speechSupported) window.speechSynthesis.cancel();
-    setMuted((v) => !v);
-  };
+  const toggleMute = () => nova.setMuted(!nova.muted);
 
   return (
     <div
@@ -151,7 +96,7 @@ export function CrewCareWelcome() {
         </div>
 
         <div className={styles.greeting} aria-live="polite">
-          {greeting}
+          {welcomeLine}
         </div>
 
         <p className={styles.tapHint}>Tap Nova to hear her greeting again.</p>
@@ -167,18 +112,44 @@ export function CrewCareWelcome() {
           <button
             className={styles.mute}
             onClick={toggleMute}
-            aria-label={muted ? "Unmute Nova" : "Mute Nova"}
-            title={muted ? "Unmute Nova" : "Mute Nova"}
+            aria-label={nova.muted ? "Unmute Nova" : "Mute Nova"}
+            title={nova.muted ? "Unmute Nova" : "Mute Nova"}
           >
-            {muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
-            <span>{muted ? "Unmute" : "Mute Nova"}</span>
+            {nova.muted ? <VolumeX size={17} /> : <Volume2 size={17} />}
+            <span>{nova.muted ? "Unmute" : "Mute Nova"}</span>
+          </button>
+          <button
+            className={styles.mute}
+            onClick={() => setShowPicker((v) => !v)}
+            aria-label="Voice settings"
+            title="Voice settings"
+          >
+            <Settings size={17} />
+            <span>Voice</span>
           </button>
         </div>
 
-        {speechMissing && (
+        {nova.pendingTap && !nova.muted && (
           <p className={styles.speechNote}>
-            Sound is unavailable right now. Tap Nova to hear her greeting.
+            Tap anywhere to hear Nova's greeting.
           </p>
+        )}
+        {nova.unsupported && (
+          <p className={styles.speechNote}>
+            No voice available on this device.
+          </p>
+        )}
+
+        {showPicker && (
+          <div className={styles.pickerPanel}>
+            <NovaVoicePicker
+              voices={nova.voices}
+              selectedVoiceUri={nova.selectedVoiceUri}
+              speed={nova.speed}
+              onVoiceChange={(uri) => { nova.setVoiceUri(uri); nova.speak(helloLine); }}
+              onSpeedChange={nova.setSpeed}
+            />
+          </div>
         )}
       </div>
     </div>
