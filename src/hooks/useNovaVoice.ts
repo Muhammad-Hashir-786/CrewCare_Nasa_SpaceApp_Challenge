@@ -17,7 +17,7 @@ export const NOVA_VOICE_KEY = "crewcare_nova_voice_uri";
 export const NOVA_SPEED_KEY = "crewcare_nova_speed";
 
 export type NovaSpeed = "slower" | "normal" | "faster";
-const SPEED_RATES: Record<NovaSpeed, number> = { slower: 0.78, normal: 0.95, faster: 1.22 };
+export const SPEED_RATES: Record<NovaSpeed, number> = { slower: 0.78, normal: 0.95, faster: 1.22 };
 
 /** True only in a browser environment with SpeechSynthesis available. */
 export const speechSupported =
@@ -88,9 +88,14 @@ export interface NovaVoiceHook {
 
 export function useNovaVoice(): NovaVoiceHook {
   const [muted, setMutedState] = useState(false);
-  const [speed, setSpeedState] = useState<NovaSpeed>(loadSpeed);
+  // These read localStorage — must use a lazy initialiser that only runs on the client.
+  const [speed, setSpeedState] = useState<NovaSpeed>(() =>
+    typeof window === "undefined" ? "normal" : loadSpeed()
+  );
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceUri, setSelectedVoiceUriState] = useState<string | null>(loadVoiceUri);
+  const [selectedVoiceUri, setSelectedVoiceUriState] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : loadVoiceUri()
+  );
   const [speaking, setSpeaking] = useState(false);
   const [pendingTap, setPendingTap] = useState(false);
   const unsupported = !speechSupported;
@@ -155,8 +160,33 @@ export function useNovaVoice(): NovaVoiceHook {
 
   // Cleanup on unmount.
   useEffect(() => {
-    return () => { if (speechSupported) window.speechSynthesis.cancel(); };
+    return () => {
+      if (speechSupported) window.speechSynthesis.cancel();
+      clearKeepAlive();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Chrome Android silently stops synthesis after ~15s.
+  // A periodic resume() call prevents this.
+  const keepAliveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clearKeepAlive = useCallback(() => {
+    if (keepAliveRef.current != null) {
+      clearInterval(keepAliveRef.current);
+      keepAliveRef.current = null;
+    }
+  }, []);
+  const startKeepAlive = useCallback(() => {
+    clearKeepAlive();
+    keepAliveRef.current = setInterval(() => {
+      if (speechSupported && window.speechSynthesis.speaking) {
+        window.speechSynthesis.pause();
+        window.speechSynthesis.resume();
+      } else {
+        clearKeepAlive();
+      }
+    }, 10000);
+  }, [clearKeepAlive]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const doSpeak = useCallback((text: string) => {
@@ -169,26 +199,34 @@ export function useNovaVoice(): NovaVoiceHook {
       return;
     }
 
+    clearKeepAlive();
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = SPEED_RATES[speedRef.current];
-    utterance.pitch = 1.03;
+    // A short gap is required on Chrome — calling speak() in the same tick
+    // after cancel() silently drops the new utterance.
+    // Also resume() first in case synthesis is in a paused/stuck state.
+    window.setTimeout(() => {
+      try { window.speechSynthesis.resume(); } catch { /* ignore */ }
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = SPEED_RATES[speedRef.current];
+      utterance.pitch = 1.03;
 
-    const voice = pickVoice(voicesRef.current, selectedVoiceUriRef.current);
-    if (voice) utterance.voice = voice;
+      const voice = pickVoice(voicesRef.current, selectedVoiceUriRef.current);
+      if (voice) utterance.voice = voice;
 
-    utterance.onstart = () => setSpeaking(true);
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = (ev) => {
-      setSpeaking(false);
-      if (ev.error === "not-allowed" || ev.error === "interrupted") {
-        // Autoplay blocked — queue and wait for tap.
-        pendingTextRef.current = text;
-        setPendingTap(true);
-      }
-    };
+      utterance.onstart = () => { setSpeaking(true); startKeepAlive(); };
+      utterance.onend = () => { setSpeaking(false); clearKeepAlive(); };
+      utterance.onerror = (ev) => {
+        setSpeaking(false);
+        clearKeepAlive();
+        if (ev.error === "not-allowed" || ev.error === "interrupted") {
+          // Autoplay blocked — queue and wait for tap.
+          pendingTextRef.current = text;
+          setPendingTap(true);
+        }
+      };
 
-    window.speechSynthesis.speak(utterance);
+      window.speechSynthesis.speak(utterance);
+    }, 50);
   }, []);
 
   const speak = useCallback((text: string) => {
@@ -199,21 +237,23 @@ export function useNovaVoice(): NovaVoiceHook {
 
   const cancel = useCallback(() => {
     if (speechSupported) window.speechSynthesis.cancel();
+    clearKeepAlive();
     setSpeaking(false);
     setPendingTap(false);
     pendingTextRef.current = null;
-  }, []);
+  }, [clearKeepAlive]);
 
   const setMuted = useCallback((value: boolean) => {
     mutedRef.current = value;
     setMutedState(value);
     if (value) {
       if (speechSupported) window.speechSynthesis.cancel();
+      clearKeepAlive();
       setSpeaking(false);
       setPendingTap(false);
       pendingTextRef.current = null;
     }
-  }, []);
+  }, [clearKeepAlive]);
 
   const setSpeed = useCallback((value: NovaSpeed) => {
     speedRef.current = value;

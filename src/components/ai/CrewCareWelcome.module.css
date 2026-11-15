@@ -32,3 +32,5 @@
 @keyframes waveLabel{from{opacity:0;transform:translateY(4px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
 @media(max-width:520px){.scene{padding:18px;overflow-y:auto}.content{max-width:440px;margin:auto}.eyebrow{font-size:12px;margin-bottom:22px}.agent{width:184px;height:184px;margin-bottom:22px}.agent svg{width:146px;height:146px}.ringOne{inset:7px}.ringTwo{inset:-8px}.copy h1{font-size:32px;gap:8px}.copy h1 span+span{font-size:24px}.greeting{max-width:360px;font-size:16px;margin-top:20px}.tapHint{font-size:14px;margin-top:12px}.actions{gap:8px;margin-top:22px}.enter{min-width:172px}.mute{min-width:105px}}
 @media(prefers-reduced-motion:reduce){.scene,.agent,.ring,.stars i,.copy h1 span,.copy>p,.greeting,.actions,.speechNote{animation:none!important}.agent{opacity:1;transform:none}}
+
+.pickerPanel{margin-top:18px;width:min(480px,100%);animation:lineIn .25s ease both}

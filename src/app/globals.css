@@ -866,3 +866,26 @@ svg text { font-size: 12px; }
 .landing-search-form:focus-within { box-shadow: 0 0 0 2px rgba(8,127,120,.12) !important; }
 .landing-answer { background: #ffffff !important; }
 .emergency-screen { position:fixed; inset:0; z-index:2147483000; width:100vw; height:100vh; height:100dvh; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; isolation:isolate; }
+
+/* ── Nova Voice Picker ── */
+.nova-voice-picker { display: flex; flex-direction: column; gap: 18px; padding: 18px; background: #fff; border: 1px solid #dce6e4; border-radius: 14px; }
+.nova-picker-section { display: flex; flex-direction: column; gap: 8px; }
+.nova-picker-label { font: 700 12px/1.2 Manrope, system-ui, sans-serif; letter-spacing: .08em; color: #536562; text-transform: uppercase; }
+.nova-speed-buttons { display: flex; gap: 8px; }
+.nova-speed-btn { padding: 7px 16px; border: 1px solid #dce6e4; border-radius: 99px; background: #fff; color: #344744; font: 600 13px Manrope, system-ui, sans-serif; cursor: pointer; transition: background .15s, border-color .15s; }
+.nova-speed-btn.selected { background: var(--primary-teal); border-color: var(--primary-teal); color: #fff; }
+.nova-speed-btn:hover:not(.selected) { background: rgba(103,222,214,.09); }
+.nova-voice-list { display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; border: 1px solid #dce6e4; border-radius: 10px; padding: 6px; }
+.nova-voice-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; transition: background .12s; }
+.nova-voice-row.selected { background: rgba(8,127,120,.07); }
+.nova-voice-row:hover { background: rgba(103,222,214,.08); }
+.nova-voice-select-btn { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 0; border: 0; background: transparent; cursor: pointer; text-align: left; }
+.nova-voice-name { font: 500 14px/1.2 "DM Sans", system-ui, sans-serif; color: #1f2e2c; }
+.nova-voice-lang { font: 400 11px/1 "DM Sans", system-ui, sans-serif; color: #536562; }
+.nova-voice-preview-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid #dce6e4; border-radius: 8px; background: #fff; color: #087f78; cursor: pointer; flex-shrink: 0; }
+.nova-voice-preview-btn.playing { background: rgba(8,127,120,.1); border-color: #087f78; }
+.nova-picker-empty { font-size: 14px; color: #536562; padding: 12px; }
+/* Welcome-screen picker panel */
+.nova-picker-panel { margin-top: 18px; width: min(480px, 100%); animation: lineIn .25s ease both; }
+/* Emergency inline picker */
+.nova-picker-panel-inline { margin: 10px 0 0; }

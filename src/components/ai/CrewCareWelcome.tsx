@@ -16,6 +16,9 @@ export function CrewCareWelcome() {
   const nova = useNovaVoice();
   const [waving, setWaving] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   // Speak welcome on mount (waits for voices internally).
   useEffect(() => {
@@ -129,12 +132,12 @@ export function CrewCareWelcome() {
           </button>
         </div>
 
-        {nova.pendingTap && !nova.muted && (
+        {mounted && nova.pendingTap && !nova.muted && (
           <p className={styles.speechNote}>
             Tap anywhere to hear Nova's greeting.
           </p>
         )}
-        {nova.unsupported && (
+        {mounted && nova.unsupported && (
           <p className={styles.speechNote}>
             No voice available on this device.
           </p>

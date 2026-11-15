@@ -206,7 +206,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     const timer = window.setTimeout(speakWelcome, 0);
     return () => window.clearTimeout(timer);
   }, [fullPage, speakWelcome]);
-  const retryWelcomeFromGesture = () => { if (welcomePending.current && !novaMuted) speakWelcome(); };
+  const retryWelcomeFromGesture = () => { if (welcomePending.current && !nova.muted) speakWelcome(); };
   const resetSession = () => {
     nova.cancel(); recognition.current?.abort(); micLevel.stop(); handsFreeActive.current = false; welcomePending.current = false; nova.setMuted(false); setOpen(true); setSelectedType(null); setSelectedCrewId(""); setSomeoneElse(false); setStartedAt(null); setScreen(defaultScreen); setDoneSteps([]); setCurrentStep(0); setHandsFree(false);
     setAllergy(null); setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false); setTestResults({}); setUpdatedAnalysis(null); setAnalysisUpdated(false); setAnalyzingTests(false); setError(""); setMessages([]); setText(""); setElapsed(0);
@@ -253,7 +253,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   };
   const stopListening = () => { recognition.current?.stop(); micLevel.stop(); if (voiceState === "LISTENING") setVoiceState("INTERRUPTED"); };
   const listen = async () => {
-    voiceInteraction.current = true; window.speechSynthesis?.cancel(); setVoiceState("PROCESSING");
+    voiceInteraction.current = true; nova.cancel(); setVoiceState("PROCESSING");
     const host = window as Window & { SpeechRecognition?: RecognitionConstructor; webkitSpeechRecognition?: RecognitionConstructor };
     const SpeechRecognition = host.SpeechRecognition ?? host.webkitSpeechRecognition;
     if (!SpeechRecognition) { micLevel.markOff(); setVoiceState("WAITING"); setError("Voice input is not supported here. The first-aid steps remain available on screen."); return; }
@@ -284,7 +284,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); const report = text.trim();
     if (!report) { setError("Tell Nova what happened, or tap one of the situation shortcuts below."); return; }
-    stopListening(); window.speechSynthesis?.cancel(); setError("");
+    stopListening(); nova.cancel(); setError("");
     const identifiedType = identifyEmergencyType(report);
     const activeType = identifiedType ?? (selectedType && selectedType !== "other" ? selectedType : null);
     addMessage("crew", report);
@@ -495,6 +495,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
             <div className="emergency-nova-copy"><span className="emergency-demo-pill">CrewCare · Demo</span><h1 id="emergency-title">Tell Nova what happened</h1><p>This is where custom problems go. The options below are shortcuts; a real emergency may not match any of them.</p></div>
             <div className={`nova-waveform ${voiceState === "SPEAKING" ? "active" : ""}`} role="img" aria-label={voiceState === "SPEAKING" ? "Nova is speaking" : "Nova voice is idle"}><i/><i/><i/><i/><i/><i/><i/></div>
             <button type="button" className="nova-mute-button" onClick={toggleNovaMute} aria-label={novaMuted ? "Unmute Nova" : "Mute Nova"}>{novaMuted ? <Volume2 size={18}/> : <VolumeX size={18}/>}<span>{novaMuted ? "Unmute Nova" : "Mute Nova"}</span></button>
+            <button type="button" className="nova-mute-button" onClick={() => setShowVoicePicker((v) => !v)} aria-label="Voice settings"><Settings size={18}/><span>Voice</span></button>
           </div>
           <form ref={novaFormRef} onSubmit={submit} className="nova-input-form">
             <textarea ref={novaInputRef} aria-label="Tell Nova what happened" value={text} onChange={(event) => setText(event.target.value)} placeholder="Type what happened…" rows={2} maxLength={1200}/>
@@ -504,6 +505,9 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
             </div><button type="submit" className="nova-send-button" disabled={!text.trim()}><Send size={19}/> Ask Nova</button></div>
           </form>
           <div className="nova-voice-status" role="status" aria-live="polite">{voiceState === "SPEAKING" ? "Nova is speaking" : voiceState === "LISTENING" ? <><i className="nova-listening-dot"/>Listening… tap to stop</> : micLevel.micOff ? "Mic off — tap to allow. Typed input is available." : voiceState === "PROCESSING" ? "Nova is preparing a response" : "Voice guidance is ready"}</div>
+          {nova.pendingTap && !novaMuted && <p className="emergency-error">Tap anywhere to hear Nova's voice guidance.</p>}
+          {nova.unsupported && <p className="emergency-error">No voice available on this device. The written steps remain on screen.</p>}
+          {showVoicePicker && <div className="nova-picker-panel-inline"><NovaVoicePicker voices={nova.voices} selectedVoiceUri={nova.selectedVoiceUri} speed={nova.speed} onVoiceChange={(uri) => { nova.setVoiceUri(uri); }} onSpeedChange={nova.setSpeed}/></div>}
           {error && <p role="alert" className="emergency-error">{error}</p>}
           {!selectedType && messages.length > 0 && <section className="emergency-transcript" aria-label="Nova conversation">{messages.map((message, index) => <article key={`${message.at}-${index}`} className={`emergency-message emergency-message-${message.role}`}><span>{message.role === "crew" ? "YOU" : "NOVA · SIMULATED GUIDANCE"}</span><p>{message.text}</p><time>{formatAppDateTime(message.at, { hour: "numeric", minute: "2-digit" })}</time></article>)}</section>}
         </section>
@@ -529,7 +533,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
             {selectedType === "collapsed" && <div className="pace-cue" aria-label="CPR pace cue 110 compressions per minute"><span className="pace-cue-dot"/><div><strong>CPR pace cue · 110/min</strong><small>About 2 pushes each second</small></div><span className="pace-cue-beat"/></div>}
             <ol className="first-aid-steps">{steps.map((step, index) => <li key={`${index}-${step.title}`} className={`${currentStep === index ? "current-step" : ""} ${doneSteps[index] ? "completed-step" : ""}`}><span className="first-aid-step-number">{index + 1}</span><div className="first-aid-step-copy"><strong>{step.title}</strong><p>{step.instruction}</p></div><button type="button" className={`step-done-button ${doneSteps[index] ? "done" : ""}`} aria-label={`Mark step ${index + 1} ${doneSteps[index] ? "not done" : "done"}`} aria-pressed={doneSteps[index] ?? false} onClick={() => toggleDone(index)}>{doneSteps[index] ? <Check size={19}/> : <span/>}</button></li>)}</ol>
             {steps.length > 0 && doneSteps.length === steps.length && doneSteps.every(Boolean) && <p className="emergency-steps-complete" role="status" aria-live="polite"><Check size={17}/> You marked every listed step complete. Keep monitoring the person and share the situation summary when the channel allows.</p>}
-            <div className="step-voice-controls"><button type="button" className="step-read-button" onClick={() => sayCurrentStep(false)}><Volume2 size={18}/> Read this step</button><button type="button" className={handsFree ? "step-handsfree-button active" : "step-handsfree-button"} onClick={toggleHandsFree}>{handsFree ? <VolumeX size={18}/> : <Volume2 size={18}/>} {handsFree ? "Stop hands-free" : "Hands-free"}</button><button type="button" className="step-next-button" disabled={currentStep >= steps.length - 1} onClick={nextStep}>Next step <ChevronRight size={19}/></button></div>
+            <div className="step-voice-controls"><button type="button" className="step-read-button" onClick={() => sayCurrentStep()}><Volume2 size={18}/> Read this step</button><button type="button" className={handsFree ? "step-handsfree-button active" : "step-handsfree-button"} onClick={toggleHandsFree}>{handsFree ? <VolumeX size={18}/> : <Volume2 size={18}/>} {handsFree ? "Stop hands-free" : "Hands-free"}</button><button type="button" className="step-next-button" disabled={currentStep >= steps.length - 1} onClick={nextStep}>Next step <ChevronRight size={19}/></button></div>
             <section className="emergency-followup-chat" aria-label="Ask Nova a follow-up question">
               <h3>Ask Nova a follow-up</h3>
               {messages.length > 0 && <div className="emergency-transcript" aria-label="Conversation history">{messages.map((message, index) => <article key={`${message.at}-${index}`} className={`emergency-message emergency-message-${message.role}`}><span>{message.role === "crew" ? "YOU" : "NOVA · SIMULATED GUIDANCE"}</span><p>{message.text}</p><time>{formatAppDateTime(message.at, { hour: "numeric", minute: "2-digit" })}</time></article>)}</div>}
