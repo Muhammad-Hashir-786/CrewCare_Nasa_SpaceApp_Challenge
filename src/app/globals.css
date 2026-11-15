@@ -792,3 +792,19 @@
 .emergency-ai-update>h2{margin-top:0}
 .emergency-ai-update>small{display:block;margin-top:14px}
 @media(max-width:700px){.emergency-test-row,.emergency-precaution-grid{grid-template-columns:1fr}.emergency-followup-card{padding:15px}.emergency-followup-card h2{font-size:19px}}
+
+/* Contrast repairs for the light theme, scoped to the affected existing views. */
+.emergency-screen { --emergency-bg:#f6f8f8; --emergency-panel:#ffffff; --emergency-teal:#087f78; --emergency-white:#1f2e2c; --emergency-soft:#4d605d; --emergency-red:#b42323; background:#f6f8f8; color:#1f2e2c; }
+.emergency-screen h1,.emergency-screen h2,.emergency-screen h3,.emergency-screen strong,.emergency-screen label,.emergency-screen p,.emergency-screen small,.emergency-screen time { color:#1f2e2c; }
+.emergency-screen p,.emergency-screen small,.emergency-screen time { color:#4d605d; }
+.emergency-screen .emergency-back,.emergency-screen .emergency-tool,.emergency-screen .nova-mute-button,.emergency-screen .nova-mic-button,.emergency-screen .step-read-button,.emergency-screen .step-handsfree-button,.emergency-screen .medicine-choice,.emergency-screen .quick-answer { color:#1f2e2c; background:#ffffff; }
+.emergency-screen .nova-send-button,.emergency-screen .step-next-button,.emergency-screen .emergency-screen-submit { color:#ffffff; background:#087f78; }
+.emergency-screen .emergency-type-card,.emergency-screen .emergency-crew-card,.emergency-screen .first-aid-steps li,.emergency-screen .space-risk-note,.emergency-screen .who-with-first-step,.emergency-screen .emergency-person-context,.emergency-screen .pace-cue { color:#1f2e2c; background:#ffffff; }
+.emergency-screen .emergency-type-card.selected,.emergency-screen .emergency-active-banner { color:#ffffff; background:#b42323; border-color:#b42323; }
+.emergency-screen .first-aid-step-copy strong,.emergency-screen .first-aid-step-copy p,.emergency-screen .first-aid-steps li strong { color:#1f2e2c; }
+.emergency-screen .emergency-demo-pill { color:#4d605d; background:#ffffff; }
+.landing-emergency-cta .emergency-btn,.landing-emergency-cta .emergency-btn span { color:#ffffff; }
+.landing-emergency-cta .emergency-btn { background:#b42323; }
+.ai-chat-controls { color:#4d605d; }
+.landing-disclaimer { color:#4d605d; }
+.scene { background:#f6f8f8; }

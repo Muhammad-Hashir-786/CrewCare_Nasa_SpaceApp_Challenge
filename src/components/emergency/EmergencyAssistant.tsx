@@ -395,7 +395,6 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     const dialog = dialogRef.current;
     dialog?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); close(); return; }
       if (event.key !== "Tab" || !dialog) return;
       const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'));
       if (!focusable.length) { event.preventDefault(); dialog.focus(); return; }
@@ -411,7 +410,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
 
   return <>
     {!fullPage && <button className="emergency-btn" onClick={resetSession} aria-haspopup="dialog" aria-label="CrewCare · Demo"><AlertOctagon size={22} strokeWidth={1.9}/><span>Emergency</span></button>}
-    {open && <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="emergency-title" className="emergency-screen" onPointerDown={(event) => { if (!fullPage && event.target === event.currentTarget) close(); }} onPointerDownCapture={retryWelcomeFromGesture} onKeyDownCapture={retryWelcomeFromGesture}>
+    {open && <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="emergency-title" className="emergency-screen" onPointerDownCapture={retryWelcomeFromGesture} onKeyDownCapture={retryWelcomeFromGesture}>
       <header className="emergency-header"><button onClick={close} className="emergency-back"><ArrowLeft size={18}/> Exit emergency assistant</button><span className="emergency-session-time">SESSION {Math.floor(elapsed / 60).toString().padStart(2, "0")}:{(elapsed % 60).toString().padStart(2, "0")}</span></header>
       <main className="emergency-main emergency-fast-main">
         <section className="nova-emergency-card emergency-card" aria-label="Nova emergency assistant">

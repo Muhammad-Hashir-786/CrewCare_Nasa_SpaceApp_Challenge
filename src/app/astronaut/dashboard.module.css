@@ -1,11 +1,11 @@
 .dashboard {
-  --dash-bg: #071110;
-  --dash-panel: rgba(12, 27, 26, .78);
-  --dash-panel-strong: rgba(13, 32, 30, .94);
-  --dash-white: #edf8f8;
-  --dash-soft: #b9cbc7;
-  --dash-muted: #809996;
-  --dash-teal: #67ded6;
+  --dash-bg: #f6f8f8;
+  --dash-panel: rgba(255, 255, 255, .92);
+  --dash-panel-strong: rgba(255, 255, 255, .98);
+  --dash-white: #1f2e2c;
+  --dash-soft: #4d605d;
+  --dash-muted: #536562;
+  --dash-teal: #087f78;
   width: min(100%, 1500px);
   margin: 0 auto;
   color: var(--dash-white);

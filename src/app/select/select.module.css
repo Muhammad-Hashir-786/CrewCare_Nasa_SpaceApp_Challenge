@@ -1,11 +1,11 @@
 .page {
-  --select-bg: #071110;
-  --select-panel: #0b1b19;
-  --select-panel-raised: #102320;
-  --select-white: #f2f8f7;
-  --select-soft: #b9cbc7;
-  --select-muted: #849b97;
-  --select-teal: #67ded6;
+  --select-bg: #f6f8f8;
+  --select-panel: #ffffff;
+  --select-panel-raised: #f5f8f7;
+  --select-white: #1f2e2c;
+  --select-soft: #4d605d;
+  --select-muted: #536562;
+  --select-teal: #087f78;
   position: relative;
   isolation: isolate;
   min-height: 100vh;
@@ -13,7 +13,7 @@
   padding: 30px clamp(20px, 4.5vw, 72px) 40px;
   color: var(--select-white);
   background:
-    radial-gradient(ellipse at 56% 30%, rgba(255,255,255,0.17), transparent 45%),
+    radial-gradient(ellipse at 56% 30%, rgba(8,127,120,0.06), transparent 45%),
     linear-gradient(135deg, #ffffff 0%, var(--select-bg) 48%, #ffffff 100%);
   font-family: "DM Sans", Arial, sans-serif;
 }

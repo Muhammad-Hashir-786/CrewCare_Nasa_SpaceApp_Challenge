@@ -290,8 +290,26 @@ function EvidenceLinks({ ids, evidence }: { ids: string[]; evidence: Evidence[] 
 
 type MissionPoint = { value: number; date: string };
 function missionPoints(context: Context | null, subject: Subject, key: string): MissionPoint[] {
+  const recordKey: Record<string, string> = {
+    heartRate: "heartRateBpm", heartRateBpm: "heartRateBpm",
+    systolicBP: "bloodPressureMmHg", diastolicBP: "bloodPressureMmHg", bloodPressureMmHg: "bloodPressureMmHg",
+    sleepDuration: "sleepHours", sleep: "sleepHours", sleepHours: "sleepHours",
+    stressLevel: "stress1to5", stress: "stress1to5", stress1to5: "stress1to5",
+    anxietyLevel: "anxiety1to5", anxiety: "anxiety1to5", anxiety1to5: "anxiety1to5",
+    oxygenSat: "oxygenPercent", oxygen: "oxygenPercent", oxygenPercent: "oxygenPercent",
+    bodyTemp: "temperatureC", bodyTemperature: "temperatureC", temperature: "temperatureC", temperatureC: "temperatureC",
+    bloodGlucose: "glucoseMgDl", glucose: "glucoseMgDl", glucoseMgDl: "glucoseMgDl",
+    mood: "mood", fatigue: "fatigue",
+  };
+  const field = recordKey[key] ?? key;
   return (context?.evidence ?? []).filter((item) => item.kind === "record" && item.label.endsWith(`· ${subject.callsign}`)).flatMap((item) => {
-    try { const row = JSON.parse(item.detail) as Record<string, unknown>; const raw = row[key]; const value = key === "bloodPressureMmHg" ? Number(String(raw).split("/")[0]) : raw; return typeof value === "number" && Number.isFinite(value) ? [{ value, date: String(row.recordedAt ?? item.timestamp ?? "") }] : []; }
+    try {
+      const row = JSON.parse(item.detail) as Record<string, unknown>;
+      const raw = row[field];
+      const scores: Record<string, number> = { VERY_LOW: 1, LOW: 2, NEUTRAL: 3, GOOD: 4, EXCELLENT: 5, EXHAUSTED: 1, VERY_TIRED: 2, TIRED: 3, MODERATE: 4, REFRESHED: 5 };
+      const value = field === "bloodPressureMmHg" ? Number(String(raw).split("/")[key === "diastolicBP" ? 1 : 0]) : field === "mood" || field === "fatigue" ? typeof raw === "string" ? scores[raw] : raw : typeof raw === "string" ? Number(raw) : raw;
+      return typeof value === "number" && Number.isFinite(value) ? [{ value, date: String(row.recordedAt ?? item.timestamp ?? "") }] : [];
+    }
     catch { return []; }
   }).sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -420,8 +438,7 @@ function MissionEvaluation({ context, answer, loading, error, period }: { contex
         {findings.length ? <div className={missionStyles.findingsGrid}>{findings.map((group) => {
           const extreme = group.items.reduce((best, item) => item.actualValue != null && (best.actualValue == null || (group.direction === "lower" ? item.actualValue < best.actualValue : item.actualValue > best.actualValue)) ? item : best, group.items[0]);
           const dates = group.items.map((item) => item.timestamp ? new Date(item.timestamp).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "date unavailable");
-          const dataKey = extreme.indicator === "systolicBP" || extreme.indicator === "diastolicBP" ? "bloodPressureMmHg" : extreme.indicator === "heartRate" ? "heartRateBpm" : extreme.indicator === "sleepDuration" ? "sleepHours" : extreme.indicator === "stressLevel" ? "stress1to5" : extreme.indicator;
-          const series = missionPoints(context,group.subject,dataKey);
+          const series = missionPoints(context,group.subject,extreme.indicator);
           const uniqueDates = [...new Set(dates)], shownDates = uniqueDates.slice(0, 3).join(", ");
           return <article className={missionStyles.findingRow} key={`${group.subject.id}-${extreme.indicator}`}><Activity size={15}/><MissionSpark points={series.slice(-8)} band={[extreme.expectedMinimum ?? null,extreme.expectedMaximum ?? null]} label={`${group.subject.callsign} ${group.label} trend`}/><p><strong>{group.subject.callsign} · {group.label}</strong> {group.direction === "outside" ? "outside usual range" : `${group.direction} than usual`} {group.items.length}× ({shownDates}{uniqueDates.length > 3 ? ` +${uniqueDates.length - 3}` : ""}) · {group.direction === "lower" ? "lowest" : "highest"} <b>{fmt(extreme.actualValue)} {extreme.unit}</b></p></article>;
         })}</div> : <div className={missionStyles.findingEmpty}>Nothing unusual — no marked changes were found for this period.</div>}
