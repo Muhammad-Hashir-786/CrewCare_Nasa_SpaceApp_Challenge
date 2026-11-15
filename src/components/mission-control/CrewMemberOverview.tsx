@@ -5,11 +5,12 @@ import Link from "next/link";
 import { Activity, ArrowLeft, Check, CircleAlert, Heart, Moon, Thermometer, Droplets } from "lucide-react";
 import { BodyTrendDashboard } from "@/components/health/BodyTrendDashboard";
 import type { Alert, Assessment, Astronaut, HealthRecord } from "@/types";
+import { APP_NOW, formatAppDate, mergeAlertState, mergeDailyRecords } from "@/lib/health/checkin-store";
 import styles from "./crew-overview.module.css";
 
 type QuestionInfo = { count: number; topics: string[]; found: boolean };
 type CrewSnapshot = Astronaut & { activeAlerts: Alert[]; healthRecords: HealthRecord[] };
-const dateText = (date: Date | string) => new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+const dateText = (date: Date | string) => formatAppDate(date, { month: "short", day: "numeric", year: "numeric" });
 const statusLabel = (status?: string) => status === "RED" ? "Act now" : status === "AMBER" ? "Needs attention" : "All clear";
 
 function mergeStoredAstronaut(base: Astronaut): CrewSnapshot {
@@ -19,9 +20,7 @@ function mergeStoredAstronaut(base: Astronaut): CrewSnapshot {
   try {
     const savedRecords = JSON.parse(localStorage.getItem(`crewcare_checkins_${base.id}`) ?? "[]") as HealthRecord[];
     if (Array.isArray(savedRecords)) {
-      const byId = new Map(records.map((record) => [record.id, record]));
-      savedRecords.filter((record) => record?.id && record.userId === base.id).forEach((record) => byId.set(record.id, record));
-      records = [...byId.values()].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+      records = mergeDailyRecords(records, savedRecords.filter((record) => record?.id && record.userId === base.id));
     }
   } catch { /* Use the shared read-only fixture when local records are invalid. */ }
   try {
@@ -30,15 +29,13 @@ function mergeStoredAstronaut(base: Astronaut): CrewSnapshot {
   } catch { /* Keep the roster assessment. */ }
   try {
     const saved = JSON.parse(localStorage.getItem(`crewcare_demo_alerts_${base.id}`) ?? "[]") as Alert[];
-    const byId = new Map(alerts.map((alert) => [alert.id, alert]));
-    if (Array.isArray(saved)) saved.filter((alert) => alert?.id && alert.userId === base.id).forEach((alert) => byId.set(alert.id, alert));
-    alerts = [...byId.values()].filter((alert) => alert.status === "ACTIVE");
+    alerts = mergeAlertState(alerts, Array.isArray(saved) ? saved.filter((alert) => alert?.id && alert.userId === base.id) : []).filter((alert) => alert.status === "ACTIVE");
   } catch { alerts = alerts.filter((alert) => alert.status === "ACTIVE"); }
   return { ...base, healthRecords: records, latestAssessment: assessment, activeAlerts: alerts, isSimulated: true };
 }
 
 function loadRecentQuestions(astronautId: string): QuestionInfo {
-  const cutoff = Date.now() - 7 * 86_400_000;
+  const cutoff = APP_NOW.getTime() - 7 * 86_400_000;
   const messages: Array<{ role?: string; text?: string; timestamp?: string }> = [];
   try {
     const conversations = JSON.parse(localStorage.getItem(`crewcare-ai-conversations:astronaut:${astronautId}`) ?? "[]");

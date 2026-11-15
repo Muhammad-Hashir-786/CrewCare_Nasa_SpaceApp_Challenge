@@ -50,3 +50,5 @@
 @media(max-width:1100px) { .baselineGrid { grid-template-columns: repeat(2,minmax(0,1fr)); }.pageHeader { align-items: flex-start; flex-direction: column; }.rangeSelector { justify-content: flex-start; } }
 @media(max-width:740px) { .section { padding: 18px; margin-bottom: 20px; }.sectionHeader { flex-direction: column; align-items: stretch; }.chartGrid,.forecastList { grid-template-columns: 1fr; }.saveButton { align-self: flex-start; }.chartCard { padding: 15px; } }
 @media(max-width:480px) { .baselineGrid { grid-template-columns: 1fr; }.rangeSelector { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); width: 100%; }.rangeButton,.rangeSelected { padding: 0 7px; font-size: 12px; }.sectionHeader h2 { font-size: 24px; }.sectionHeader>div { padding-left: 44px; }.pageHeader p { font-size: 14px; } }
+
+.saveButton{border-color:var(--primary-teal);color:var(--primary-on-teal);background:var(--primary-teal)}.saveButton:hover:not(:disabled){background:#066a64}

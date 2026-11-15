@@ -2,22 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Activity, AlertTriangle, Bot, ExternalLink, LoaderCircle, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { Activity, AlertTriangle, Bot, ExternalLink, LoaderCircle, RotateCcw, Send, ShieldCheck, Sparkles } from "lucide-react";
 import { SAMPLE_MEDICAL_KIT } from "@/lib/emergency/first-aid-guidance";
 import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import type { DemoState } from "@/lib/ai/demo-state";
 import missionStyles from "./MissionIntelligence.module.css";
+import { CLARIFY_HEALTH_QUESTION, isTriageHealthQuestion, vagueHealthClarification } from "@/lib/ai/chat-behavior";
+import { useRetryCountdown } from "@/hooks/useRetryCountdown";
+import { APP_NOW, APP_NOW_ISO, formatAppDate, formatAppDateTime } from "@/lib/health/checkin-store";
 
 type Scope = "astronaut" | "mission";
 type Period = "24h" | "7d" | "30d" | "90d" | "mission";
 type Evidence = { id: string; kind: string; label: string; timestamp: string | null; detail: string };
-type Subject = { id: string; callsign: string; displayName: string; latestAssessment: { status: string; summary: string; guidance: string | null } | null; currentMeasurements: Record<string, string | number | null> | null; recordsInPeriod: number; allergies?: string[] | null; conditions?: string[] | null; baselines: Array<{ indicator: string; label: string; unit: string; sufficient: boolean; count: number; mean: number | null; minimum: number | null; maximum: number | null }>; trends: Array<{ indicator: string; label: string; direction: string; explanation: string; percentChange: number | null; measurementCount: number; startingValue?: number | null; latestValue?: number | null; unit?: string }>; recent14DayTrends?: Array<{ indicator: string; label: string; unit: string; count: number; firstValue: number | null; latestValue: number | null; direction: string; baselineMinimum: number | null; baselineMaximum: number | null }>; anomalies: Array<{ indicator: string; label: string; explanation: string; sourceRecordId: string; severity: string; actualValue?: number; expectedMinimum?: number | null; expectedMaximum?: number | null; unit?: string; timestamp?: string }>; patterns: Array<{ category: string; explanation: string; evidence: string[]; suggestedFollowUp: string; reliability: number }>; forecasts: Array<{ label: string; projectedValue: number; unit: string; lowerBound: number; upperBound: number; confidence: number; sourcePoints: number; explanation: string }>; activeAlerts: Array<{ id: string; severity: string; title: string; message: string }> };
+type Subject = { id: string; callsign: string; displayName: string; latestAssessment: { status: string; summary: string; guidance: string | null } | null; currentMeasurements: Record<string, string | number | null> | null; spaceHealthObservations?: string[]; recordsInPeriod: number; allergies?: string[] | null; conditions?: string[] | null; baselines: Array<{ indicator: string; label: string; unit: string; sufficient: boolean; count: number; mean: number | null; minimum: number | null; maximum: number | null }>; trends: Array<{ indicator: string; label: string; direction: string; explanation: string; percentChange: number | null; measurementCount: number; startingValue?: number | null; latestValue?: number | null; unit?: string }>; recent14DayTrends?: Array<{ indicator: string; label: string; unit: string; count: number; firstValue: number | null; latestValue: number | null; direction: string; baselineMinimum: number | null; baselineMaximum: number | null }>; anomalies: Array<{ indicator: string; label: string; explanation: string; sourceRecordId: string; severity: string; actualValue?: number; expectedMinimum?: number | null; expectedMaximum?: number | null; unit?: string; timestamp?: string }>; patterns: Array<{ category: string; explanation: string; evidence: string[]; suggestedFollowUp: string; reliability: number }>; forecasts: Array<{ label: string; projectedValue: number; unit: string; lowerBound: number; upperBound: number; confidence: number; sourcePoints: number; explanation: string }>; activeAlerts: Array<{ id: string; severity: string; title: string; message: string }> };
 type Context = { scope: Scope; period: Period; generatedAt: string; healthDataIsSimulated: boolean; subjects: Subject[]; evidence: Evidence[]; missingInformation: string[]; mission: { name: string; code: string } };
 type Insight = { title: string; explanation: string; evidenceIds: string[]; confidence: number };
 type Recommendation = { title: string; description: string; priority: string; indicators: string[]; evidenceIds: string[]; nextStep: string };
 type Analysis = { verdict: "ALL_CLEAR" | "WATCH" | "ACT_NOW"; whatThisCouldMean: string; whatToDoNow: string[]; watchOutFor: string[]; whenToGetHelpImmediately: string; title: string; summary: string; currentInterpretation: string; historicalObservations: Insight[]; patterns: Insight[]; concerns: Insight[]; recommendations: Recommendation[]; missingInformation: string[]; confidence: number; limitations: string[]; evidenceReferences: string[] };
 type Answer = { analysis: Analysis; provider: string; model: string; generatedAt: string; criticalAlerts: Array<{ id: string; title: string; message: string; severity: string }>; evidence: Evidence[] };
-type Message = { id: string; role: "user" | "assistant"; text: string; answer?: Answer; timestamp: string };
+type Message = { id: string; role: "user" | "assistant"; text: string; answer?: Answer; timestamp: string; showTriage?: boolean };
 type Conversation = { id: string; title: string; messages: Message[]; updatedAt: string };
 type RecommendationState = "NEW" | "ACKNOWLEDGED" | "IN_PROGRESS" | "RESOLVED" | "DISMISSED";
 
@@ -53,7 +56,7 @@ function evidenceReadings(item: Evidence): string[] {
   if (item.kind !== "record") return [];
   try {
     const record = JSON.parse(item.detail) as Record<string, unknown>;
-    const date = item.timestamp ? new Date(item.timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "date unavailable";
+    const date = item.timestamp ? formatAppDate(item.timestamp, { month: "short", day: "numeric" }) : "date unavailable";
     const readings: Array<[string, unknown, string]> = [
       ["Heart rate", record.heartRateBpm, "BPM"], ["Blood pressure", record.bloodPressureMmHg, "mmHg"],
       ["Body temperature", record.temperatureC, "°C"], ["Blood sugar", record.glucoseMgDl, "mg/dL"],
@@ -61,6 +64,10 @@ function evidenceReadings(item: Evidence): string[] {
       ["Sleep quality", record.sleepQuality1to5, "/5"], ["Stress", record.stress1to5, "/5"],
       ["Anxiety", record.anxiety1to5, "/5"], ["Mood", record.mood, ""],
       ["Fatigue", record.fatigue, ""], ["Symptoms", record.symptoms, ""],
+      ["Heart rate variability", record.heartRateVariabilityMs, "ms"], ["Exercise", record.exerciseMinutes, "min"],
+      ["Fluid intake", record.fluidIntakeLitres, "L"], ["Reaction time", record.reactionTimeMs, "ms"],
+      ["Radiation dose rate", record.radiationDoseRateMsvPerDay, "mSv/day"], ["Cumulative radiation", record.cumulativeRadiationMsv, "mSv"],
+      ["Cabin CO₂", record.cabinCo2Ppm, "ppm"], ["Respiratory rate", record.respiratoryRatePerMin, "/min"],
     ];
     return readings.flatMap(([label, value, unit]) => value == null || value === "" ? [] : [`${label} ${value}${unit === "/5" ? unit : unit ? ` ${unit}` : ""} on ${date}`]);
   } catch { return []; }
@@ -75,6 +82,8 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [retryRequest, setRetryRequest] = useState<{ prompt: string; requestText: string; history: Array<{ role: "user" | "assistant"; text: string }> } | null>(null);
+  const retryCountdown = useRetryCountdown();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState("");
   const [recommendationStatuses, setRecommendationStatuses] = useState<Record<string, RecommendationState>>({});
@@ -84,6 +93,8 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
   const [missionEvaluation, setMissionEvaluation] = useState<Answer | null>(null);
   const [missionEvaluationError, setMissionEvaluationError] = useState("");
   const [missionEvaluationLoading, setMissionEvaluationLoading] = useState(false);
+  const [missionEvaluationRetry, setMissionEvaluationRetry] = useState(0);
+  const { seconds: missionEvaluationRetrySeconds, start: startMissionEvaluationCountdown, clear: clearMissionEvaluationCountdown } = useRetryCountdown();
   const contextKey = `${scope}:${astronautId ?? "mission"}:${period}`;
   const recommendationStorageKey = `crewcare-ai-recommendation-status:${scope}:${astronautId ?? "mission"}`;
   const activeConversations = conversations;
@@ -101,13 +112,13 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
     fetch("/api/ai/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
       body: JSON.stringify({ scope: "mission", period, demoStates: activeDemoStates, question: "Review the full crew for this selected period using only the supplied measurements, individual baselines, trends, symptoms, alerts, and history. Start with a short overall verdict. Identify only crew members who need attention, explain the observed concern in plain words, and give cautious EAT, DO, and AVOID advice supported by their data. For others give one short reassuring line. Do not diagnose, invent data, medicine or doses, and never mention record IDs. Mention allergy information only when supplied." })
     }).then(async (response) => {
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "The crew evaluation could not be generated.");
-      if (!controller.signal.aborted) setMissionEvaluation({ analysis: data.analysis, provider: data.provider, model: data.model, generatedAt: data.generatedAt, criticalAlerts: data.criticalAlerts ?? [], evidence: activeContext.evidence });
-    }).catch((cause: unknown) => { if (!controller.signal.aborted) setMissionEvaluationError(cause instanceof Error ? cause.message : "The crew evaluation could not be generated."); })
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { startMissionEvaluationCountdown(data.retryAfterSeconds); throw new Error("retryable"); }
+      if (!controller.signal.aborted) { setMissionEvaluation({ analysis: data.analysis, provider: data.provider, model: data.model, generatedAt: data.generatedAt, criticalAlerts: data.criticalAlerts ?? [], evidence: activeContext.evidence }); clearMissionEvaluationCountdown(); }
+    }).catch(() => { if (!controller.signal.aborted) setMissionEvaluationError("CrewCare AI couldn’t complete this review. Your crew data is safe to retry."); })
       .finally(() => { if (!controller.signal.aborted) setMissionEvaluationLoading(false); });
     return () => controller.abort();
-  }, [scope, activeContext, period, activeDemoStates]);
+  }, [scope, activeContext, period, activeDemoStates, missionEvaluationRetry, startMissionEvaluationCountdown, clearMissionEvaluationCountdown]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -153,20 +164,29 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
     try { localStorage.setItem(recommendationStorageKey, JSON.stringify(next)); } catch { setError("Unable to save recommendation status in browser storage."); }
   };
 
-  const newConversation = () => { setConversationId(""); setError(""); setQuestion(""); };
-  const ask = async (prompt = question, contextualPrompt?: string) => {
-    const displayText = prompt.trim();
-    const clean = (contextualPrompt ?? prompt).trim();
-    if (clean.length < 4 || loading) return;
+  const newConversation = () => { setConversationId(""); setError(""); setQuestion(""); setRetryRequest(null); retryCountdown.clear(); };
+  const ask = async (prompt = question, contextualPrompt?: string, retry = false) => {
+    const displayText = (retry ? retryRequest?.prompt : prompt)?.trim() ?? "";
+    const clean = (retry ? retryRequest?.requestText : contextualPrompt ?? prompt)?.trim() ?? "";
+    if (clean.length < 4 || loading || (!retry && retryCountdown.seconds > 0)) return;
+    const existing = currentConversation;
+    const history = retry ? retryRequest?.history ?? [] : (existing?.messages ?? []).map((message) => ({ role: message.role, text: message.role === "assistant" && message.answer ? `Verdict: ${message.answer.analysis.verdict}. What this could mean: ${message.answer.analysis.whatThisCouldMean}. What to do right now: ${message.answer.analysis.whatToDoNow.map((step, i) => `${i + 1}. ${step}`).join(" ")}. Watch out for: ${message.answer.analysis.watchOutFor.join(" ")}. When to get help immediately: ${message.answer.analysis.whenToGetHelpImmediately}.` : message.text })).slice(-100);
+    if (!retry && vagueHealthClarification(displayText)) {
+      const timestamp = APP_NOW_ISO;
+      const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: displayText, timestamp };
+      const clarification: Message = { id: crypto.randomUUID(), role: "assistant", text: CLARIFY_HEALTH_QUESTION, timestamp };
+      const conversation: Conversation = { id: existing?.id ?? crypto.randomUUID(), title: existing?.title ?? displayText.slice(0, 72), messages: [...(existing?.messages ?? []), userMessage, clarification], updatedAt: timestamp };
+      persistConversations([...activeConversations.filter((item) => item.id !== conversation.id), conversation]); setConversationId(conversation.id); setQuestion(""); setError(""); setRetryRequest(null); retryCountdown.clear(); return;
+    }
     setLoading(true); setError("");
-    const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: displayText, timestamp: new Date().toISOString() };
+    const userMessage: Message = { id: crypto.randomUUID(), role: "user", text: displayText, timestamp: APP_NOW_ISO };
     try {
-      const history = (currentConversation?.messages ?? []).map((message) => ({ role: message.role, text: message.role === "assistant" && message.answer ? `Verdict: ${message.answer.analysis.verdict}. What this could mean: ${message.answer.analysis.whatThisCouldMean}. What to do right now: ${message.answer.analysis.whatToDoNow.map((step, i) => `${i + 1}. ${step}`).join(" ")}. Watch out for: ${message.answer.analysis.watchOutFor.join(" ")}. When to get help immediately: ${message.answer.analysis.whenToGetHelpImmediately}.` : message.text })).slice(-100);
       const existingRecommendations = [...new Set(activeConversations.flatMap((conversation) => conversation.messages.flatMap((message) => message.answer?.analysis.recommendations.map((item) => item.title) ?? [])))].filter((title) => !Object.entries(activeRecommendationStatuses).some(([key, status]) => key.endsWith(`:${title}`) && (status === "RESOLVED" || status === "DISMISSED"))).slice(-20);
       const questionForScope = scope === "astronaut" && isCrewWideQuestion(displayText) ? `This is an astronaut-only chat for the selected astronaut. Answer only from that astronaut's supplied data. The question asks about the whole crew; clearly say you can cover only this astronaut and do not invent or infer other crew members' data. ${clean}` : clean;
       const response = await fetch("/api/ai/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope, astronautId, question: questionForScope, period, conversationHistory: history, existingRecommendations, demoStates: activeDemoStates }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "AI analysis could not be generated.");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { retryCountdown.start(data.retryAfterSeconds); throw new Error(response.status === 429 ? "rate" : "retryable"); }
+      retryCountdown.clear(); setRetryRequest(null);
       const analysis = data.analysis as Analysis;
       if (scope === "mission" && /sleep/i.test(displayText) && /(declin|decreas|going down|trend)/i.test(displayText) && activeContext) {
         const declining = activeContext.subjects.flatMap((subject) => subject.trends.filter((trend) => trend.indicator === "sleepDuration" && trend.direction === "decreasing").map((trend) => `${subject.displayName} (${subject.callsign}): ${trend.startingValue ?? "—"} to ${trend.latestValue ?? "—"} ${trend.unit ?? "hours"}${trend.percentChange == null ? "" : `, ${trend.percentChange}%`}`));
@@ -174,17 +194,16 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
         analysis.summary = analysis.whatThisCouldMean;
       }
       const answer: Answer = { analysis, provider: data.provider, model: data.model, generatedAt: data.generatedAt, criticalAlerts: data.criticalAlerts ?? [], evidence: activeContext?.evidence ?? [] };
-      const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", text: answer.analysis.summary, answer, timestamp: answer.generatedAt };
-      const existing = currentConversation;
-      const conversation: Conversation = { id: existing?.id ?? crypto.randomUUID(), title: existing?.title ?? displayText.slice(0, 72), messages: [...(existing?.messages ?? []), userMessage, assistantMessage], updatedAt: answer.generatedAt };
+      const showTriage = isTriageHealthQuestion(clean) || (Boolean(contextualPrompt) && existing?.messages.at(-1)?.showTriage === true);
+      const assistantMessage: Message = { id: crypto.randomUUID(), role: "assistant", text: answer.analysis.summary, answer, timestamp: answer.generatedAt, showTriage };
+      const conversation: Conversation = { id: existing?.id ?? crypto.randomUUID(), title: existing?.title ?? displayText.slice(0, 72), messages: [...(existing?.messages ?? []), ...(retry ? [] : [userMessage]), assistantMessage], updatedAt: answer.generatedAt };
       persistConversations([...activeConversations.filter((item) => item.id !== conversation.id), conversation]);
       setConversationId(conversation.id); setQuestion("");
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "AI analysis could not be generated.";
-      setError(message);
+      setError(cause instanceof Error && cause.message === "rate" ? "CrewCare AI is busy right now. Your question is safe to retry." : "CrewCare AI couldn’t complete that answer. Your question is safe to retry.");
+      if (!retry) setRetryRequest({ prompt: displayText, requestText: clean, history });
       // Keep failed questions visible without presenting them as an AI answer.
-      const existing = currentConversation;
-      const conversation: Conversation = { id: existing?.id ?? crypto.randomUUID(), title: existing?.title ?? displayText.slice(0,72), messages: [...(existing?.messages ?? []), userMessage], updatedAt: new Date().toISOString() };
+      const conversation: Conversation = { id: existing?.id ?? crypto.randomUUID(), title: existing?.title ?? displayText.slice(0,72), messages: retry ? (existing?.messages ?? []) : [...(existing?.messages ?? []), userMessage], updatedAt: APP_NOW_ISO };
       persistConversations([...activeConversations.filter((item) => item.id !== conversation.id), conversation]);
       setConversationId(conversation.id); setQuestion("");
     } finally { setLoading(false); }
@@ -208,10 +227,10 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
       <p style={{ color: "var(--muted)", fontSize: 10, lineHeight: 1.5, margin: "0 0 12px" }}>{scope === "mission" ? "Ask about any crew member’s health — answers use the crew’s real readings and trends." : "Questions are answered from this page’s recorded data and analysis."}</p>
 
       <div className={scope === "mission" ? missionStyles.chatThread : undefined} aria-live="polite" style={{ maxHeight: 470, overflow: "auto", marginBottom: 12 }}>{currentConversation?.messages.map((message) => <article key={message.id} style={{ borderTop: "1px solid var(--line)", padding: "11px 0" }}>
-        {message.role === "user" ? <p style={{ margin: 0, fontSize: 11, color: "var(--teal-bright)" }}>You · {new Date(message.timestamp).toLocaleString()}<br/><span style={{ color: "#4d605d" }}>{visibleText(message.text)}</span></p> : message.answer ? <div>
+        {message.role === "user" ? <p style={{ margin: 0, fontSize: 11, color: "var(--teal-bright)" }}>You · {formatAppDateTime(message.timestamp)}<br/><span style={{ color: "#4d605d" }}>{visibleText(message.text)}</span></p> : message.answer ? <div>
           {scope === "astronaut" && isCrewWideQuestion(message.text) && astronautId && <p style={{ margin: "0 0 9px", color: "#1f2e2c", fontSize: 14, fontWeight: 600 }}>This chat covers {astronautName} only — for the whole crew, ask in Mission intelligence.</p>}
-          {scope === "astronaut" && <p style={{ margin: "0 0 5px", fontSize: 10, color: "var(--muted)" }}>{visibleText(message.answer.analysis.title)} · {message.answer.provider} / {message.answer.model} · {new Date(message.timestamp).toLocaleString()}</p>}
-          {(() => { const verdict = answerVerdictForScope(message.answer!, scope, activeContext); return <span style={{ display: "inline-flex", border: `1px solid ${verdict === "ACT_NOW" ? "#b42323" : verdict === "WATCH" ? "#d8b96f" : "#dce6e4"}`, color: verdict === "ACT_NOW" ? "#b42323" : verdict === "WATCH" ? "#94600b" : "#08784f", borderRadius: 999, padding: "7px 12px", fontWeight: 800 }}>{verdict === "ACT_NOW" ? "Act now" : verdict === "WATCH" ? "Needs attention" : "All clear"}</span>; })()}
+          {scope === "astronaut" && <p style={{ margin: "0 0 5px", fontSize: 10, color: "var(--muted)" }}>{visibleText(message.answer.analysis.title)} · {message.answer.provider} / {message.answer.model} · {formatAppDateTime(message.timestamp)}</p>}
+          {message.showTriage && (() => { const verdict = answerVerdictForScope(message.answer!, scope, activeContext); return <span style={{ display: "inline-flex", border: `1px solid ${verdict === "ACT_NOW" ? "#b42323" : verdict === "WATCH" ? "#d8b96f" : "#dce6e4"}`, color: verdict === "ACT_NOW" ? "#b42323" : verdict === "WATCH" ? "#94600b" : "#08784f", borderRadius: 999, padding: "7px 12px", fontWeight: 800 }}>{verdict === "ACT_NOW" ? "Act now" : verdict === "WATCH" ? "Needs attention" : "All clear"}</span>; })()}
           {message.answer.criticalAlerts.map((alert) => <div key={alert.id} style={{ padding: "9px 10px", border: "1px solid #b42323", borderRadius: 6, color: "#b42323", fontSize: 11, margin: "8px 0" }}><AlertTriangle size={13} style={{ verticalAlign: "middle", marginRight: 6 }}/>{visibleText(alert.severity)} health alert: {visibleText(alert.title)}. Follow established mission emergency procedures and contact authorized medical personnel. {visibleText(alert.message)}</div>)}
           <section><h3 style={{ fontSize: 15, margin: "14px 0 5px" }}>What this could mean</h3><p style={{ color: "#1f2e2c", fontSize: 14, lineHeight: 1.55, margin: 0 }}>{visibleText(message.answer.analysis.whatThisCouldMean)}</p></section>
           <section><h3 style={{ fontSize: 15, margin: "14px 0 5px" }}>What to do right now</h3><ol style={{ color: "#1f2e2c", fontSize: 14, lineHeight: 1.55 }}>{message.answer.analysis.whatToDoNow.map((step, i) => <li key={i}>{visibleText(step)}</li>)}</ol></section>
@@ -223,12 +242,13 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
           {scope === "astronaut" && message.answer.analysis.missingInformation.length>0&&<p style={{ color: "#94600b", fontSize: 10, lineHeight: 1.5 }}>Missing information: {message.answer.analysis.missingInformation.join(" · ")}</p>}
           {scope === "astronaut" && <p style={{ color: "var(--muted)", fontSize: 9, lineHeight: 1.5 }}>AI confidence {Math.round(message.answer.analysis.confidence*100)}% · {message.answer.analysis.limitations.join(" ")}</p>}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>{["What if it gets worse?", "Explain it simpler", "Show the steps again"].map((chip) => { const topic = currentConversation?.messages.filter((entry) => entry.role === "user").at(-1)?.text ?? "the health concern just discussed"; const instruction = chip === "What if it gets worse?" ? `Explain what worsening of this same concern (${topic}) would look like and restate the relevant warning signs.` : chip === "Explain it simpler" ? `Re-explain your immediately previous answer about the same concern (${topic}) in simpler, shorter words.` : `Repeat the same numbered guidance from your immediately previous answer about the concern (${topic}).`; return <button key={chip} type="button" onClick={() => void ask(chip, instruction)} disabled={loading} style={{ ...btnStyle, padding: "7px 10px" }}>{chip}</button>; })}</div>
-        </div> : <p style={{ color: "#4d605d", fontSize: 10 }}>No AI answer was generated.</p>}
+        </div> : <p style={{ color: "#4d605d", fontSize: 14 }}>{visibleText(message.text)}</p>}
       </article>)}</div>
-            {error && <p className={scope === "mission" ? missionStyles.chatError : undefined} role="alert" style={{ color: "#b42323", fontSize: 11 }}>{error}</p>}
-      <form className={scope === "mission" ? missionStyles.chatForm : undefined} onSubmit={(event) => { event.preventDefault(); void ask(); }} style={{ display: "flex", gap: 8, alignItems: "flex-end" }}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} maxLength={600} placeholder={scope === "mission" ? "Which crew members have declining sleep trends?" : "How has my sleep changed over the last 30 days?"} rows={scope === "mission" ? 3 : 2} style={{ flex: 1, resize: "vertical", background: "#ffffff", border: "1px solid var(--line)", borderRadius: 7, color: "#1f2e2c", padding: scope === "mission" ? 16 : 10, font: scope === "mission" ? "18px DM Sans" : "11px DM Sans" }}/><button type="submit" className={scope === "mission" ? missionStyles.askButton : undefined} disabled={loading || question.trim().length < 4} style={{ ...btnStyle, display: "flex", alignItems: "center", gap: 7, opacity: loading ? .65 : 1 }}>{loading ? <LoaderCircle size={14} className="spin"/> : <Send size={14}/>} {loading ? "Analyzing" : "Ask AI"}</button></form>
-      {scope === "mission" && <div className={missionStyles.exampleQuestions}>{["Which crew members have declining sleep trends?", "Who needs attention right now?", "Why is CIPHER's blood pressure rising?", "What should I do about the sleep problem?"].map((prompt) => <button key={prompt} type="button" onClick={() => setQuestion(prompt)} disabled={loading}>{prompt}</button>)}</div>}
-      {scope === "astronaut" && <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 9 }}><span className="section-kicker" style={{ margin: 0 }}>QUICK QUESTIONS</span>{["How am I doing today?", "What changed this week?", "Explain my latest assessment", "How is my sleep compared with baseline?"].map((prompt) => <button key={prompt} type="button" onClick={() => { setQuestion(prompt); void ask(prompt); }} disabled={loading} style={{ ...btnStyle, padding: "6px 8px", fontSize: 9 }}>{prompt}</button>)}</div>}
+            {error && <p className={scope === "mission" ? missionStyles.chatError : undefined} role="alert" style={{ color: "#b42323", fontSize: 11 }}>{error} {retryCountdown.seconds > 0 && <span>Try again in {retryCountdown.seconds} seconds. </span>}<button type="button" onClick={() => { if (retryRequest) void ask(retryRequest.prompt, retryRequest.requestText, true); }} disabled={loading || !retryRequest || retryCountdown.seconds > 0} style={btnStyle}><RotateCcw size={13}/> Retry</button></p>}
+            {!error && retryCountdown.seconds > 0 && <p role="status" style={{ fontSize: 11 }}>Try again in {retryCountdown.seconds} seconds.</p>}
+      <form className={scope === "mission" ? missionStyles.chatForm : undefined} onSubmit={(event) => { event.preventDefault(); void ask(); }} style={{ display: "flex", gap: 8, alignItems: "flex-end" }}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} maxLength={600} placeholder={scope === "mission" ? "Which crew members have declining sleep trends?" : "How has my sleep changed over the last 30 days?"} rows={scope === "mission" ? 3 : 2} style={{ flex: 1, resize: "vertical", background: "#ffffff", border: "1px solid var(--line)", borderRadius: 7, color: "#1f2e2c", padding: scope === "mission" ? 16 : 10, font: scope === "mission" ? "18px DM Sans" : "11px DM Sans" }}/><button type="submit" className={scope === "mission" ? missionStyles.askButton : undefined} disabled={loading || retryCountdown.seconds > 0 || question.trim().length < 4} style={{ ...btnStyle, background: "var(--primary-teal)", color: "var(--primary-on-teal)", borderColor: "var(--primary-teal)", display: "flex", alignItems: "center", gap: 7, opacity: loading ? .65 : 1 }}>{loading ? <LoaderCircle size={14} className="spin"/> : <Send size={14}/>} {loading ? "Analyzing" : "Ask AI"}</button></form>
+      {scope === "mission" && <div className={missionStyles.exampleQuestions}>{["Which crew members have declining sleep trends?", "Who needs attention right now?", "Why is CIPHER's blood pressure rising?", "What should I do about the sleep problem?"].map((prompt) => <button key={prompt} type="button" onClick={() => { setQuestion(prompt); void ask(prompt); }} disabled={loading || retryCountdown.seconds > 0}>{prompt}</button>)}</div>}
+      {scope === "astronaut" && <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 9 }}><span className="section-kicker" style={{ margin: 0 }}>QUICK QUESTIONS</span>{["How am I doing today?", "What changed this week?", "Explain my latest assessment", "How is my sleep compared with baseline?"].map((prompt) => <button key={prompt} type="button" onClick={() => { setQuestion(prompt); void ask(prompt); }} disabled={loading || retryCountdown.seconds > 0} style={{ ...btnStyle, padding: "6px 8px", fontSize: 9 }}>{prompt}</button>)}</div>}
       <p style={{ fontSize: 9, color: "var(--muted)", margin: "8px 0 0" }}>This conversation is kept while you stay on this page. Reloading starts a new conversation. Do not enter identifying personal information.</p>
     </section>
   );
@@ -245,7 +265,7 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
     {scope === "mission" && <MissionStatusBoard subjects={activeContext?.subjects ?? []}/>}
 
     {scope === "astronaut" && subjects[0] && <section className="agent-welcome" aria-label="Health review summary">
-      <div className="agent-welcome-orb" aria-hidden="true"><span/></div>
+      <div className="agent-welcome-orb" aria-hidden="true"><svg viewBox="0 0 48 48"><circle cx="24" cy="27" r="15"/><path d="M11 21q1-9 13-9t13 9M19 12V8h10v4M24 8v8m-4-4h8"/><circle cx="19" cy="26" r="1.4"/><circle cx="29" cy="26" r="1.4"/><path d="M20 32q4 4 8 0M10 26v7q0 6 6 6h3m10 0h3q6 0 6-6v-7"/><circle cx="22" cy="39" r="2.5"/></svg></div>
       <div><span className="section-kicker">CREWCARE · HEALTH REVIEW</span><h2>Ultimate review</h2><p>{subjects[0].latestAssessment ? `Your latest assessment is ${subjects[0].latestAssessment.status}: ${visibleText(subjects[0].latestAssessment.summary)}` : "No assessment is available yet."} This review uses {subjects[0].recordsInPeriod} recorded health records for this period and {subjects[0].activeAlerts.length} active alerts. Ask a question below for evidence-linked analysis{activeContext?.healthDataIsSimulated ? "; this profile uses simulated data." : "."}</p></div>
     </section>}
 
@@ -258,23 +278,24 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
       {activeContext?.missingInformation.length ? <p style={{ color: "#94600b", fontSize: 10, lineHeight: 1.5, margin: "10px 0 0" }}>Missing from latest records: {activeContext.missingInformation.slice(0, 5).join(" · ")}</p> : null}
     </div>
 
-    {scope === "mission" && <MissionEvaluation context={activeContext} answer={missionEvaluation} loading={missionEvaluationLoading} error={missionEvaluationError} period={period}/>}
+    {scope === "mission" && <MissionEvaluation context={activeContext} answer={missionEvaluation} loading={missionEvaluationLoading} error={missionEvaluationError} period={period} retrySeconds={missionEvaluationRetrySeconds} onRetry={() => { setMissionEvaluationError(""); clearMissionEvaluationCountdown(); setMissionEvaluationRetry((value) => value + 1); }} />}
 
     {scope === "astronaut" && subjects.map((subject) => <section className="card" key={subject.id} style={surface}>
-      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}><div><p className="section-kicker" style={{ margin: "0 0 4px" }}>ULTIMATE REVIEW</p><strong style={{ color: subject.latestAssessment?.status === "RED" ? "#ef4444" : subject.latestAssessment?.status === "AMBER" ? "#f59e0b" : "#10b981" }}>{subject.latestAssessment?.status ?? "NOT AVAILABLE"}</strong><p style={{ color: "#4d605d", fontSize: 11, margin: "6px 0" }}>{visibleText(subject.latestAssessment?.summary ?? "No assessment is available.")}</p></div><div style={{ minWidth: 190 }}><p className="section-kicker" style={{ margin: "0 0 5px" }}>LATEST CHECK-IN</p><p style={{ fontSize: 11, color: "#4d605d", margin: 0 }}>{subject.currentMeasurements?.recordedAt ? new Date(String(subject.currentMeasurements.recordedAt)).toLocaleString() : "No current record"}</p><p style={{ fontSize: 10, color: "var(--muted)", margin: "4px 0" }}>{subject.recordsInPeriod} records in selected period</p></div></div>
+      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}><div><p className="section-kicker" style={{ margin: "0 0 4px" }}>ULTIMATE REVIEW</p><strong style={{ color: subject.latestAssessment?.status === "RED" ? "#ef4444" : subject.latestAssessment?.status === "AMBER" ? "#f59e0b" : "#10b981" }}>{subject.latestAssessment?.status ?? "NOT AVAILABLE"}</strong><p style={{ color: "#4d605d", fontSize: 11, margin: "6px 0" }}>{visibleText(subject.latestAssessment?.summary ?? "No assessment is available.")}</p></div><div style={{ minWidth: 190 }}><p className="section-kicker" style={{ margin: "0 0 5px" }}>LATEST CHECK-IN</p><p style={{ fontSize: 11, color: "#4d605d", margin: 0 }}>{subject.currentMeasurements?.recordedAt ? formatAppDateTime(String(subject.currentMeasurements.recordedAt)) : "No current record"}</p><p style={{ fontSize: 10, color: "var(--muted)", margin: "4px 0" }}>{subject.recordsInPeriod} records in selected period</p></div></div>
       {subject.activeAlerts.map((alert) => <div key={alert.id} style={{ padding: "8px 10px", borderLeft: "2px solid #ef4444", background: "rgba(239,68,68,.06)", marginTop: 10, fontSize: 11 }}><strong>{visibleText(alert.severity)} · {visibleText(alert.title)}</strong><p style={{ color: "#4d605d", margin: "4px 0 0" }}>{visibleText(alert.message)}</p></div>)}
     </section>)}
 
     {scope === "astronaut" && subjects.map((subject) => <section key={`signals-${subject.id}`} style={{ marginBottom: 18 }}>
       <h2 className="section-kicker" style={{ margin: "0 0 9px" }}>Personal trends</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 9 }}>{subject.baselines.filter((baseline) => ["heartRate","sleepDuration","sleepQuality","stressLevel","anxietyLevel"].includes(baseline.indicator)).map((baseline) => <div className="card" key={baseline.indicator} style={{ padding: 12 }}><span className="section-kicker">{baseline.label.toUpperCase()}</span><strong style={{ display: "block", fontSize: 14, marginTop: 5 }}>{baseline.sufficient ? `${baseline.mean} ${baseline.unit}` : "Insufficient data"}</strong><small style={{ display: "block", color: "var(--muted)", fontSize: 9, marginTop: 4 }}>{baseline.sufficient ? `Range ${baseline.minimum}–${baseline.maximum} · ${baseline.count} records` : `${baseline.count} observations`}</small></div>)}</div>
+      {subject.spaceHealthObservations?.length ? <div className="card" style={{ ...surface, marginTop: 10, marginBottom: 0 }}><span className="section-kicker">What stands out · space health</span>{subject.spaceHealthObservations.map((observation,index)=><p key={index} style={{ color: "#4d605d", fontSize: 12, lineHeight: 1.5, margin: "7px 0 0" }}>{observation}</p>)}</div> : null}
       {subject.patterns.length > 0 && <div className="card" style={{ ...surface, marginTop: 10, marginBottom: 0 }}><span className="section-kicker">What stands out</span>{subject.patterns.slice(0,3).map((pattern,index) => <p key={`${pattern.category}-${index}`} style={{ color: "#4d605d", fontSize: 11, lineHeight: 1.5, margin: "7px 0 0" }}>{visibleText(pattern.explanation)} <a href="#evidence" style={{ color: "var(--teal)" }}>View evidence</a></p>)}</div>}
     </section>)}
 
     {scope === "astronaut" && <section id="evidence" className="card" style={surface}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}><Sparkles size={15} color="var(--teal)"/><h2 className="section-kicker" style={{ margin: 0 }}>Health history evidence</h2></div>
-      {recordEvidence.length > 0 && <p style={{ color: "#4d605d", fontSize: 12, margin: "0 0 10px" }}>{recordEvidence.length} check-ins in {periodLabel(period)} — latest {recordEvidence.map((item) => item.timestamp).filter(Boolean).sort().at(-1) ? new Date(recordEvidence.map((item) => item.timestamp).filter(Boolean).sort().at(-1)!).toLocaleDateString("en-GB") : "date unavailable"} · <a href="/astronaut/history" style={{ color: "var(--teal)" }}>Open health history</a></p>}
-      <div style={{ maxHeight: 310, overflow: "auto" }}>{recordEvidence.map((item) => <details key={`${item.kind}-${item.id}`} style={{ borderTop: "1px solid var(--line)", padding: "8px 0" }}><summary style={{ cursor: "pointer", fontSize: 12, color: "#4d605d" }}>Health check-in · {item.timestamp ? new Date(item.timestamp).toLocaleDateString("en-GB") : "date unavailable"}</summary><ul style={{ color: "var(--muted)", fontSize: 12, lineHeight: 1.6, margin: "7px 0 0", paddingLeft: 18 }}>{evidenceReadings(item).map((reading) => <li key={reading}>{visibleText(reading)}</li>)}</ul></details>)}</div>
+      {recordEvidence.length > 0 && <p style={{ color: "#4d605d", fontSize: 12, margin: "0 0 10px" }}>{recordEvidence.length} check-ins in {periodLabel(period)} — latest {recordEvidence.map((item) => item.timestamp).filter(Boolean).sort().at(-1) ? formatAppDate(recordEvidence.map((item) => item.timestamp).filter(Boolean).sort().at(-1)!, { day: "2-digit", month: "2-digit", year: "numeric" }) : "date unavailable"} · <a href="/astronaut/history" style={{ color: "var(--teal)" }}>Open health history</a></p>}
+      <div style={{ maxHeight: 310, overflow: "auto" }}>{recordEvidence.map((item) => <details key={`${item.kind}-${item.id}`} style={{ borderTop: "1px solid var(--line)", padding: "8px 0" }}><summary style={{ cursor: "pointer", fontSize: 12, color: "#4d605d" }}>Health check-in · {item.timestamp ? formatAppDate(item.timestamp, { day: "2-digit", month: "2-digit", year: "numeric" }) : "date unavailable"}</summary><ul style={{ color: "var(--muted)", fontSize: 12, lineHeight: 1.6, margin: "7px 0 0", paddingLeft: 18 }}>{evidenceReadings(item).map((reading) => <li key={reading}>{visibleText(reading)}</li>)}</ul></details>)}</div>
     </section>}
 
 {scope === "astronaut" && aiChatCard}
@@ -325,7 +346,7 @@ function MissionSpark({ points, band, threshold, bars = false, label }: { points
     {inBand && <rect x="5" width="310" y={y(highBand)} height={Math.max(2, y(lowBand) - y(highBand))} className={missionStyles.rangeBand}/>}
     {threshold != null && <><line x1="5" x2="315" y1={y(threshold)} y2={y(threshold)} className={missionStyles.threshold}/><text x="8" y={Math.max(10,y(threshold)-3)} className={missionStyles.thresholdText}>{threshold}</text></>}
     {bars ? points.map((point, index) => <rect key={`${point.date}-${index}`} x={x(index)-15} y={y(point.value)} width="30" height={Math.max(3,68-y(point.value))} rx="4" className={missionStyles.bar}/>) : <path d={path} className={missionStyles.chartLine}/>}
-    {!bars && points.map((point, index) => <circle key={`${point.date}-${index}`} cx={x(index)} cy={y(point.value)} r="3.5" className={band && (point.value < (band[0] ?? -Infinity) || point.value > (band[1] ?? Infinity)) ? missionStyles.outlier : missionStyles.chartPoint}><title>{`${new Date(point.date).toLocaleDateString()}: ${point.value}`}</title></circle>)}
+    {!bars && points.map((point, index) => <circle key={`${point.date}-${index}`} cx={x(index)} cy={y(point.value)} r="3.5" className={band && (point.value < (band[0] ?? -Infinity) || point.value > (band[1] ?? Infinity)) ? missionStyles.outlier : missionStyles.chartPoint}><title>{`${formatAppDate(point.date)}: ${point.value}`}</title></circle>)}
   </svg>;
 }
 function shortLines(text: string) { const words = text.split(/\s+/); const lines: string[] = []; for (let i = 0; i < words.length; i += 5) lines.push(words.slice(i, i + 5).join(" ")); return lines; }
@@ -344,14 +365,17 @@ function MissionStatusBoard({ subjects }: { subjects: Subject[] }) {
   }) : <div className={missionStyles.boardLoading}>Loading crew status…</div>}</section>;
 }
 
-function MissionEvaluation({ context, answer, loading, error, period }: { context: Context | null; answer: Answer | null; loading: boolean; error: string; period: Period }) {
+function MissionEvaluation({ context, answer, loading, error, period, retrySeconds, onRetry }: { context: Context | null; answer: Answer | null; loading: boolean; error: string; period: Period; retrySeconds: number; onRetry: () => void }) {
   const subjects = context?.subjects ?? [];
   const attention = subjects.filter((subject) => subject.latestAssessment?.status === "AMBER" || subject.latestAssessment?.status === "RED" || subject.activeAlerts.length > 0 || subject.currentMeasurements?.symptoms);
   const latestDate = subjects.map((subject) => subject.currentMeasurements?.recordedAt).filter((value): value is string | number => typeof value === "string" || typeof value === "number").sort().at(-1);
   const periodMs: Record<Exclude<Period, "mission">, number> = { "24h": 86_400_000, "7d": 7 * 86_400_000, "30d": 30 * 86_400_000, "90d": 90 * 86_400_000 };
-  const cutoff = period === "mission" ? 0 : (latestDate ? new Date(latestDate).getTime() : Date.now()) - periodMs[period];
+  const cutoff = period === "mission" ? 0 : APP_NOW.getTime() - periodMs[period];
   const groups = new Map<string, { subject: Subject; label: string; direction: "higher" | "lower" | "outside"; items: Subject["anomalies"] }>();
-  subjects.forEach((subject) => subject.anomalies.filter((item) => !item.timestamp || new Date(item.timestamp).getTime() >= cutoff).forEach((item) => {
+  subjects.forEach((subject) => subject.anomalies.filter((item) => {
+    const baseline = subject.baselines.find((entry) => entry.indicator === item.indicator);
+    return Boolean(item.timestamp && new Date(item.timestamp).getTime() >= cutoff && baseline?.sufficient && baseline.minimum != null && baseline.maximum != null && item.actualValue != null && (item.actualValue < baseline.minimum || item.actualValue > baseline.maximum));
+  }).forEach((item) => {
     const key = `${subject.id}:${item.indicator}:${item.actualValue != null && item.expectedMaximum != null && item.actualValue > item.expectedMaximum ? "higher" : item.actualValue != null && item.expectedMinimum != null && item.actualValue < item.expectedMinimum ? "lower" : "outside"}`;
     const direction = item.actualValue != null && item.expectedMaximum != null && item.actualValue > item.expectedMaximum ? "higher" : item.actualValue != null && item.expectedMinimum != null && item.actualValue < item.expectedMinimum ? "lower" : "outside";
     const group = groups.get(key) ?? { subject, label: item.label, direction, items: [] };
@@ -361,12 +385,18 @@ function MissionEvaluation({ context, answer, loading, error, period }: { contex
     const distance = (group: typeof a) => Math.max(...group.items.map((item) => item.actualValue != null && item.expectedMinimum != null && item.expectedMaximum != null ? Math.max(item.expectedMinimum - item.actualValue, item.actualValue - item.expectedMaximum, 0) : 0));
     return distance(b) - distance(a);
   }).slice(0, 5);
+  const spaceHealthFindings = subjects.flatMap((subject) => (subject.spaceHealthObservations ?? []).map((observation, index) => ({ subject, observation, index }))).slice(0, 1);
+  const displayedFindings = findings.slice(0, Math.max(0, 5 - spaceHealthFindings.length));
   const plain = cleanDisplayText;
   const fmt = (value: unknown) => value == null ? "not recorded" : String(value);
   const dataItems = (subject: Subject) => [
     ["Heart rate", subject.currentMeasurements?.heartRateBpm, "bpm"], ["Blood pressure", subject.currentMeasurements?.bloodPressureMmHg, "mmHg"],
     ["Sleep", subject.currentMeasurements?.sleepHours, "h"], ["Oxygen", subject.currentMeasurements?.oxygenPercent, "%"],
     ["Temperature", subject.currentMeasurements?.temperatureC, "°C"], ["Blood sugar", subject.currentMeasurements?.glucoseMgDl, "mg/dL"],
+    ["Heart rate variability", subject.currentMeasurements?.heartRateVariabilityMs, "ms"], ["Exercise", subject.currentMeasurements?.exerciseMinutes, "min"],
+    ["Fluid intake", subject.currentMeasurements?.fluidIntakeLitres, "L"], ["Reaction time", subject.currentMeasurements?.reactionTimeMs, "ms"],
+    ["Radiation dose rate", subject.currentMeasurements?.radiationDoseRateMsvPerDay, "mSv/day"], ["Cumulative radiation", subject.currentMeasurements?.cumulativeRadiationMsv, "mSv"],
+    ["Cabin CO₂", subject.currentMeasurements?.cabinCo2Ppm, "ppm"], ["Respiratory rate", subject.currentMeasurements?.respiratoryRatePerMin, "/min"],
   ].filter(([, value]) => value != null);
   const statusText = answer?.analysis.verdict === "ACT_NOW" ? "Act now" : answer?.analysis.verdict === "WATCH" || attention.length ? "Needs attention" : "All clear";
   const recommendationsFor = (subject: Subject) => {
@@ -390,8 +420,8 @@ function MissionEvaluation({ context, answer, loading, error, period }: { contex
         <div className={`${missionStyles.verdictGauge} ${missionStyles[statusText === "Act now" ? "act" : attention.length ? "watch" : "clear"]}`}><strong>{attention.length}</strong><small>needs attention</small></div>
         <div className={missionStyles.verdictCopy}><p className="section-kicker">CREW EVALUATION · {period === "mission" ? "MISSION" : period.toUpperCase()}</p><h2>{answer ? statusText : attention.length ? "Needs attention" : loading ? "Updating review…" : "All clear"}</h2>
           <p>{answer ? plain(answer.analysis.whatThisCouldMean || answer.analysis.summary) : loading ? "AI is reviewing crew readings and trends." : "No current crew concerns found in the loaded review."}</p>
-          {loading && <span role="status">Updating evaluation…</span>}{error && <span role="alert">Evaluation unavailable: {error}</span>}
-          <small>{context.evidence.filter((item) => item.kind === "record").length} records · latest {latestDate ? new Date(latestDate).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "date unavailable"} · {subjects.length} crew members</small>
+          {loading && <span role="status">Updating evaluation…</span>}{error && <p role="alert">{error} {retrySeconds > 0 && <span>Try again in {retrySeconds} seconds. </span>}<button type="button" onClick={onRetry} disabled={loading || retrySeconds > 0}><RotateCcw size={13}/> Retry</button></p>}
+          <small>{context.evidence.filter((item) => item.kind === "record").length} records · latest {latestDate ? formatAppDate(latestDate, { day: "numeric", month: "short" }) : "date unavailable"} · {subjects.length} crew members</small>
         </div>
       </section>
       <section className={missionStyles.section}>
@@ -409,12 +439,12 @@ function MissionEvaluation({ context, answer, loading, error, period }: { contex
               <div><span className={`${missionStyles.subjectStatus} ${subject.latestAssessment?.status === "RED" ? missionStyles.actText : missionStyles.watchText}`}><i/> {subject.latestAssessment?.status === "RED" ? "Act now" : "Needs attention"} · {subject.callsign}</span><h3 className={missionStyles.subjectName}>{subject.displayName}</h3><p className={missionStyles.subjectSummary}>{plain(subject.latestAssessment?.summary ?? "Current readings or alerts need review.")}</p></div>
               <Link href={`/mission-control/crew/${encodeURIComponent(subject.id)}`} className="btn btn-primary" style={{ textDecoration: "none" }}>View profile →</Link>
             </div>
-            {symptomRecords.length > 0 && <p style={{ color: "#4d605d", fontSize: 13, margin: "10px 0 0" }}>Recent recorded symptoms: {symptomRecords.slice(-3).map((item) => `${item.symptoms}${item.recordedAt ? ` (${new Date(item.recordedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })})` : ""}`).join(" · ")}.</p>}
+            {symptomRecords.length > 0 && <p style={{ color: "#4d605d", fontSize: 13, margin: "10px 0 0" }}>Recent recorded symptoms: {symptomRecords.slice(-3).map((item) => `${item.symptoms}${item.recordedAt ? ` (${formatAppDate(item.recordedAt, { day: "numeric", month: "short" })})` : ""}`).join(" · ")}.</p>}
             <div className={missionStyles.adviceCards}>
               {[["🍽","EAT", advice.eat], ["✅","DO", advice.do || "Continue the planned routine and record the next check-in."], ["🚫","AVOID", advice.avoid]].map(([icon,label, text]) => <div key={label} className={missionStyles.adviceCard}><span>{icon}</span><strong>{label}</strong><div>{shortLines(String(text)).map((line,index)=><small key={index}>{line}</small>)}</div></div>)}
             </div>
             <div className={missionStyles.attentionCharts}>
-              <div className={missionStyles.miniChart}><strong>Blood pressure · last 5 days</strong><span>135 mmHg reference line</span><MissionSpark points={missionPoints(context,subject,"bloodPressureMmHg").slice(-5)} threshold={135} label={`${subject.callsign} systolic blood pressure over five days`}/><small>{missionPoints(context,subject,"bloodPressureMmHg").slice(-5).map((point) => `${new Date(point.date).toLocaleDateString(undefined,{day:"numeric",month:"short"})}: ${point.value}`).join(" · ")}</small></div>
+              <div className={missionStyles.miniChart}><strong>Blood pressure · last 5 days</strong><span>135 mmHg reference line</span><MissionSpark points={missionPoints(context,subject,"bloodPressureMmHg").slice(-5)} threshold={135} label={`${subject.callsign} systolic blood pressure over five days`}/><small>{missionPoints(context,subject,"bloodPressureMmHg").slice(-5).map((point) => `${formatAppDate(point.date,{day:"numeric",month:"short"})}: ${point.value}`).join(" · ")}</small></div>
               <div className={missionStyles.miniChart}><strong>Sleep · last 3 nights</strong><span>6-hour reference line</span><MissionSpark points={missionPoints(context,subject,"sleepHours").slice(-3)} threshold={6} bars label={`${subject.callsign} sleep hours over three nights`}/><small>{missionPoints(context,subject,"sleepHours").slice(-3).map((point) => `${point.value}h`).join(" · ")}</small></div>
             </div>
             <p className={missionStyles.medicineNote}>Simulated sample kit — not verified onboard inventory.</p><details className={missionStyles.medicineNote}><summary>Medicine safety</summary><p>{storedAllergies} {SAMPLE_MEDICAL_KIT.items.length ? "The sample kit is simulated and not verified for this spacecraft." : ""} {allergySafe}</p></details>
@@ -435,13 +465,14 @@ function MissionEvaluation({ context, answer, loading, error, period }: { contex
       </section>
       <section className={missionStyles.section}>
         <h2>What stands out</h2><p className={missionStyles.sectionIntro}>Changes compared with each crew member’s earlier records</p>
-        {findings.length ? <div className={missionStyles.findingsGrid}>{findings.map((group) => {
+        {displayedFindings.length || spaceHealthFindings.length ? <div className={missionStyles.findingsGrid}>{displayedFindings.map((group) => {
           const extreme = group.items.reduce((best, item) => item.actualValue != null && (best.actualValue == null || (group.direction === "lower" ? item.actualValue < best.actualValue : item.actualValue > best.actualValue)) ? item : best, group.items[0]);
-          const dates = group.items.map((item) => item.timestamp ? new Date(item.timestamp).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "date unavailable");
+          const dates = group.items.map((item) => item.timestamp ? formatAppDate(item.timestamp, { day: "numeric", month: "short" }) : "date unavailable");
           const series = missionPoints(context,group.subject,extreme.indicator);
           const uniqueDates = [...new Set(dates)], shownDates = uniqueDates.slice(0, 3).join(", ");
           return <article className={missionStyles.findingRow} key={`${group.subject.id}-${extreme.indicator}`}><Activity size={15}/><MissionSpark points={series.slice(-8)} band={[extreme.expectedMinimum ?? null,extreme.expectedMaximum ?? null]} label={`${group.subject.callsign} ${group.label} trend`}/><p><strong>{group.subject.callsign} · {group.label}</strong> {group.direction === "outside" ? "outside usual range" : `${group.direction} than usual`} {group.items.length}× ({shownDates}{uniqueDates.length > 3 ? ` +${uniqueDates.length - 3}` : ""}) · {group.direction === "lower" ? "lowest" : "highest"} <b>{fmt(extreme.actualValue)} {extreme.unit}</b></p></article>;
         })}</div> : <div className={missionStyles.findingEmpty}>Nothing unusual — no marked changes were found for this period.</div>}
+        {spaceHealthFindings.map(({subject,observation,index})=><article className={missionStyles.findingRow} key={`space-${subject.id}-${index}`}><Activity size={15}/><p><strong>{subject.callsign} · Space health</strong> {observation}</p></article>)}
         <p className={missionStyles.honesty}>This describes past records — not a diagnosis.</p>
       </section>
       <section className={missionStyles.section}><h2>Crew trends</h2><div className={missionStyles.crewTrendRows}>{subjects.map((subject) => <article className={missionStyles.crewTrendRow} key={subject.id}><strong>{subject.displayName}<small>{subject.callsign}</small></strong>{subject.baselines.filter((item) => ["heartRate", "sleepDuration", "mood", "stressLevel"].includes(item.indicator)).map((item) => {

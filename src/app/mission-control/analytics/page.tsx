@@ -6,6 +6,7 @@ import { Activity, AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, BarC
 import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import { generateHealthIntelligence } from "@/lib/health/historical-analytics";
 import type { HealthRecord } from "@/types";
+import { APP_NOW, APP_NOW_ISO, countAnomalyDays, mergeDailyRecords } from "@/lib/health/checkin-store";
 import styles from "./MissionAnalyticsPage.module.css";
 
 type Trend = { direction: string; percentChange: number | null; completeness?: number };
@@ -16,6 +17,7 @@ type Member = {
   latestHeartRate: number | null; personalHeartRateDeviation: number | null;
   anomalyCount: number; repeatedAnomalyCount: number; patterns: { category: string; explanation: string; priority: string }[]; dataCompleteness: number;
   observations: { category: string; explanation: string; suggestedFollowUp: string; priority: string; reliability: number }[];
+  records?: HealthRecord[];
 };
 type Report = { generatedAt: string; mission: { name: string; code: string }; crewCount: number; totalRecords: number; meanDataCompleteness: number; totalAnomalies: number; repeatedAnomalies: number; members: Member[]; notes: string[] };
 type Point = { date: string; value: number; id: string };
@@ -74,6 +76,9 @@ function buildFindings(member: Member, records: HealthRecord[]) {
   const byKey = new Map<string, typeof report.anomalies>();
   for (const anomaly of report.anomalies) {
     const baseline = report.baselines.find((item) => item.indicator === anomaly.indicator);
+    const source = records.find((record) => record.id === anomaly.sourceRecordId);
+    if (!baseline?.sufficient || baseline.minimum == null || baseline.maximum == null || !source || new Date(source.recordedAt).getTime() < APP_NOW.getTime() - 30 * 86_400_000) continue;
+    if (anomaly.actualValue >= baseline.minimum && anomaly.actualValue <= baseline.maximum) continue;
     const direction = anomaly.actualValue >= (baseline?.mean ?? anomaly.actualValue) ? "higher" : "lower";
     const key = `${anomaly.indicator}:${direction}`;
     byKey.set(key, [...(byKey.get(key) ?? []), anomaly]);
@@ -85,6 +90,41 @@ function buildFindings(member: Member, records: HealthRecord[]) {
       const count = byKey.get(`${top.indicator}:${direction}`)?.length ?? 1;
       return { key: `${top.indicator}:${direction}`, label: top.label, direction, count, reliability: top.severity, method: top.method, explanation: top.explanation };
     });
+}
+
+function reportFromSharedStore() {
+  const members = DEMO_ASTRONAUTS.map((astronaut) => {
+    let local: HealthRecord[] = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(`crewcare_checkins_${astronaut.id}`) ?? "[]");
+      if (Array.isArray(parsed)) local = parsed.filter((record) => record?.userId === astronaut.id && record?.id);
+    } catch { /* Keep the canonical demo fixture. */ }
+    const records = mergeDailyRecords(astronaut.healthRecords ?? [], local);
+    const intelligence = generateHealthIntelligence(records, { phase3Status: astronaut.latestAssessment?.status });
+    const baselines = intelligence.baselines;
+    const outDays = countAnomalyDays(intelligence.anomalies);
+    const trend = (indicator: string) => intelligence.trends.find((item) => item.indicator === indicator && item.period === "30d");
+    const statusValue = astronaut.latestAssessment?.status === "RED" ? "RED" : astronaut.latestAssessment?.status === "AMBER" || outDays.days > 0 ? "AMBER" : astronaut.latestAssessment?.status ?? null;
+    const latest = records.at(-1);
+    const hrBaseline = baselines.find((item) => item.indicator === "heartRate");
+    const deviation = latest?.heartRate != null && hrBaseline?.sufficient && hrBaseline.standardDeviation ? Number(((latest.heartRate - hrBaseline.median!) / hrBaseline.standardDeviation).toFixed(2)) : null;
+    return {
+      astronautId: astronaut.id, name: astronaut.name, callsign: astronaut.callsign, phase3Status: statusValue,
+      recordCount: records.length, isSimulated: true, sleepTrend: trend("sleepDuration"), stressTrend: trend("stressLevel"), heartRateTrend: trend("heartRate"),
+      heartRateBaseline: hrBaseline, latestHeartRate: latest?.heartRate ?? null, personalHeartRateDeviation: deviation,
+      anomalyCount: outDays.days, repeatedAnomalyCount: outDays.repeatedDays,
+      patterns: intelligence.patterns, observations: intelligence.observations, dataCompleteness: trend("heartRate")?.completeness ?? 0,
+      records,
+    };
+  });
+  const totalRecords = members.reduce((total, member) => total + member.recordCount, 0);
+  return {
+    generatedAt: APP_NOW_ISO, mission: { name: "Horizon VII", code: "HORIZON-7" }, crewCount: members.length, totalRecords,
+    meanDataCompleteness: members.length ? Number((members.reduce((sum, member) => sum + member.dataCompleteness, 0) / members.length).toFixed(2)) : 0,
+    totalAnomalies: members.reduce((sum, member) => sum + member.anomalyCount, 0), repeatedAnomalies: members.reduce((sum, member) => sum + member.repeatedAnomalyCount, 0),
+    members,
+    notes: ["Crew patterns are summarized from person-specific baselines; raw values are not treated as directly comparable between astronauts.", "Statistical deviations and projections are not medical diagnoses or validated medical limits.", "Correlations do not establish causation. Phase 3 remains authoritative for configured safety alerts."],
+  };
 }
 
 export default function MissionAnalyticsPage() {
@@ -102,7 +142,8 @@ export default function MissionAnalyticsPage() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error ?? "Analytics unavailable");
         if (!data.report || !Array.isArray(data.report.members) || data.report.members.length === 0) throw new Error("Crew data is empty.");
-        setReport(data.report); setLoading(false); return;
+        const shared = reportFromSharedStore();
+        setReport(shared); setLoading(false); return;
       } catch (error) { lastError = error; }
     }
     setMessage(lastError instanceof Error ? lastError.message : "Crew data could not be loaded.");
@@ -113,10 +154,10 @@ export default function MissionAnalyticsPage() {
   const save = async () => {
     setBusy(true); setMessage("");
     try {
-      const response = await fetch("/api/analytics/mission", { method: "POST" });
+      const response = await fetch("/api/analytics/mission", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ demoStates: DEMO_ASTRONAUTS.map((astronaut) => ({ astronautId: astronaut.id, records: JSON.parse(localStorage.getItem(`crewcare_checkins_${astronaut.id}`) ?? "[]") })) }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not save report");
-      setReport(data.report);
+      setReport(reportFromSharedStore());
       setMessage(data.persisted ? "Report saved." : "Demo report calculated for this session.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not save report"); }
     finally { setBusy(false); }
@@ -136,8 +177,7 @@ export default function MissionAnalyticsPage() {
     </section>
     {report.repeatedAnomalies > 0 && <section className={styles.repeatBanner}><strong>{report.repeatedAnomalies}</strong><span>Repeated changes from personal ranges</span><AlertTriangle size={20}/></section>}
     <section className={styles.crewGrid} aria-label="Crew member visual analytics">{report.members.map((member) => {
-      const astronaut = DEMO_ASTRONAUTS.find((item) => item.id === member.astronautId);
-      const records = [...(astronaut?.healthRecords ?? [])].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime()).slice(-30);
+      const records = (member as Member & { records?: HealthRecord[] }).records ?? [];
       const heartPoints = toPoints(records, "heartRate");
       const sleepPoints = toPoints(records, "sleepDuration");
       const stressPoints = toPoints(records, "stressLevel");

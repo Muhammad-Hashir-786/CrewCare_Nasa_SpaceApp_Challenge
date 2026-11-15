@@ -1,6 +1,7 @@
 "use client";
 
 import type { Alert } from "@/types";
+import { formatAppDateTime } from "@/lib/health/checkin-store";
 import { StatusBadge } from "./StatusBadge";
 
 interface AlertCardProps {
@@ -66,7 +67,7 @@ export function AlertCard({ alert, astronautName, onAcknowledge }: AlertCardProp
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 11, color: "var(--cc-text-muted)" }}>
-          {new Date(alert.createdAt).toLocaleString()}
+          {formatAppDateTime(alert.createdAt)}
         </span>
         {isActive && onAcknowledge && (
           <button

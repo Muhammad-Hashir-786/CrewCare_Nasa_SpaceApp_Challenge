@@ -8,6 +8,7 @@ import {
   ArrowRight, ArrowLeft, Shield, AlertTriangle,
 } from "lucide-react";
 import { useAstronaut } from "@/lib/astronaut-context";
+import { APP_NOW_ISO } from "@/lib/health/checkin-store";
 import { assessHealth, DEMO_THRESHOLDS, SYMPTOM_OPTIONS } from "@/services/health-assessment";
 import styles from "./checkin.module.css";
 import { SAMPLE_MEDICAL_KIT } from "@/lib/emergency/first-aid-guidance";
@@ -25,6 +26,8 @@ interface FormState {
   bodyTemp: string;
   bloodGlucose: string;
   oxygenSat: string;
+  exerciseMinutes: string;
+  fluidIntakeLitres: string;
   // Section B — Sleep
   sleepDuration: string;
   sleepQuality: number | null; // 1-5
@@ -44,7 +47,7 @@ interface FormState {
 const INITIAL: FormState = {
   measurementSource: "MANUAL_ENTRY",
   heartRate: "", systolicBP: "", diastolicBP: "",
-  bodyTemp: "", bloodGlucose: "", oxygenSat: "",
+  bodyTemp: "", bloodGlucose: "", oxygenSat: "", exerciseMinutes: "", fluidIntakeLitres: "",
   sleepDuration: "", sleepQuality: null, fatigue: "",
   mood: "", stressLevel: null, anxietyLevel: null, mentalNotes: "",
   selectedSymptoms: [], symptomText: "", symptomSeverity: "MILD", notes: "",
@@ -136,6 +139,8 @@ export default function CheckInPage() {
         bodyTemp: current.bodyTemp || (latest.bodyTemp == null ? "" : String(latest.bodyTemp)),
         bloodGlucose: current.bloodGlucose || (latest.bloodGlucose == null ? "" : String(latest.bloodGlucose)),
         oxygenSat: current.oxygenSat || (latest.oxygenSat == null ? "" : String(latest.oxygenSat)),
+        exerciseMinutes: current.exerciseMinutes || (latest.exerciseMinutes == null ? "" : String(latest.exerciseMinutes)),
+        fluidIntakeLitres: current.fluidIntakeLitres || (latest.fluidIntakeLitres == null ? "" : String(latest.fluidIntakeLitres)),
         sleepDuration: current.sleepDuration || (latest.sleepDuration == null ? "" : String(latest.sleepDuration)),
         sleepQuality: latest.sleepQuality ?? current.sleepQuality,
         fatigue: current.fatigue || latest.fatigue || "",
@@ -209,7 +214,7 @@ export default function CheckInPage() {
     const rec: HealthRecord = {
       id: "pending",
       userId: astronaut.id,
-      recordedAt: new Date().toISOString(),
+      recordedAt: APP_NOW_ISO,
       heartRate:     form.heartRate    ? parseFloat(form.heartRate)    : null,
       systolicBP:    form.systolicBP   ? parseFloat(form.systolicBP)   : null,
       diastolicBP:   form.diastolicBP  ? parseFloat(form.diastolicBP)  : null,
@@ -217,6 +222,8 @@ export default function CheckInPage() {
       bloodGlucose:  form.bloodGlucose ? parseFloat(form.bloodGlucose) : null,
       oxygenSat:     form.oxygenSat    ? parseFloat(form.oxygenSat)    : null,
       sleepDuration: form.sleepDuration? parseFloat(form.sleepDuration): null,
+      exerciseMinutes: form.exerciseMinutes ? parseFloat(form.exerciseMinutes) : null,
+      fluidIntakeLitres: form.fluidIntakeLitres ? parseFloat(form.fluidIntakeLitres) : null,
       mood: (form.mood || null) as HealthRecord["mood"],
       fatigue: (form.fatigue || null) as HealthRecord["fatigue"],
       sleepQuality: form.sleepQuality,
@@ -270,7 +277,7 @@ export default function CheckInPage() {
       }
       const body = await response.json();
       const savedRecord = body.record as HealthRecord | undefined;
-      if (savedRecord) resultRecord = savedRecord;
+      if (savedRecord) resultRecord = { ...rec, ...savedRecord };
       if (body.result) {
         const saved = body.result as EngineResult;
         assessment.status = saved.overallStatus;
@@ -289,18 +296,16 @@ export default function CheckInPage() {
     }
 
     setSubmittedRecord(resultRecord);
-    if (!astronaut.healthRecords?.some((item) => item.id === resultRecord.id)) {
-      addHealthRecord(resultRecord, {
-        id: `assessment-${resultRecord.id}`,
-        userId: astronaut.id,
-        status: assessment.status,
-        summary: assessment.summary,
-        details: assessment.details,
-        guidance: assessment.guidance,
-        flags: assessment.flags,
-        createdAt: resultRecord.recordedAt,
-      }, true);
-    }
+    addHealthRecord(resultRecord, {
+      id: `assessment-${resultRecord.id}`,
+      userId: astronaut.id,
+      status: assessment.status,
+      summary: assessment.summary,
+      details: assessment.details,
+      guidance: assessment.guidance,
+      flags: assessment.flags,
+      createdAt: resultRecord.recordedAt,
+    }, true);
     setResult(assessment);
     setSubmitted(true);
     setSaving(false);
@@ -348,6 +353,8 @@ export default function CheckInPage() {
                   { key: "bodyTemp",     label: "Body temperature",     unit: "°C",    placeholder: "e.g. 36.8",hint: "Typical demo range: 36.5–37.5 °C", icon: Thermometer, source: "NASA HRP risk context: altered immune system" },
                   { key: "oxygenSat",    label: "Oxygen saturation",          unit: "%",     placeholder: "e.g. 98",  hint: "Typical demo range: 95–100%", icon: Droplets, source: "NASA HRP risk context: hypoxia" },
                   { key: "bloodGlucose", label: "Fasting blood sugar", unit: "mg/dL", placeholder: "e.g. 90",  hint: "Fasting demo range: 70–99 mg/dL", icon: Droplets, source: "NASA HRP nutrition context; range is a CrewCare demo rule" },
+                  { key: "exerciseMinutes", label: "Exercise today", unit: "min", placeholder: "e.g. 96", hint: "Minutes of exercise today", icon: Activity, source: "NASA HRP risk context: reduced fitness and bone changes" },
+                  { key: "fluidIntakeLitres", label: "Fluid intake today", unit: "L", placeholder: "e.g. 2.3", hint: "Litres of fluid today", icon: Droplets, source: "NASA HRP risk context: nutrition and cardiovascular adaptations" },
                 ].map((f) => (
                   <div key={f.key} className={styles.vitalField}>
                     <label className={styles.vitalLabel}>
@@ -436,7 +443,7 @@ export default function CheckInPage() {
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
                     <input type="radio" name="fatigue" value="" checked={!form.fatigue} onChange={() => set("fatigue", "")} style={{ accentColor: "var(--teal)", width: 14, height: 14 }} />
-                    <span style={{ fontSize: 12, color: !form.fatigue ? "#edf8f8" : "var(--muted)" }}>Not reported</span>
+                    <span style={{ fontSize: 12, color: !form.fatigue ? "#1f2e2c" : "var(--muted)" }}>Not reported</span>
                   </label>
                   {FATIGUE_OPTIONS.map((opt) => (
                     <label key={opt.v} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
@@ -446,7 +453,7 @@ export default function CheckInPage() {
                         onChange={() => set("fatigue", opt.v)}
                         style={{ accentColor: "var(--teal)", width: 14, height: 14 }}
                       />
-                      <span style={{ fontSize: 12, color: form.fatigue === opt.v ? "#edf8f8" : "var(--muted)" }}>{opt.label}</span>
+                      <span style={{ fontSize: 12, color: form.fatigue === opt.v ? "#1f2e2c" : "var(--muted)" }}>{opt.label}</span>
                     </label>
                   ))}
                 </div>
@@ -478,7 +485,7 @@ export default function CheckInPage() {
                       border: `1px solid ${form.mood === opt.v ? "#16825d" : "var(--line)"}`,
                       borderRadius: 8,
                       background: form.mood === opt.v ? "rgba(103,222,214,0.1)" : "rgba(0,0,0,0.1)",
-                      color: form.mood === opt.v ? "var(--teal-bright)" : "var(--muted)",
+                      color: form.mood === opt.v ? "#1f2e2c" : "var(--muted)",
                       fontSize: 9, cursor: "pointer", textAlign: "center",
                     }}>
                       <div style={{ fontSize: 22, marginBottom: 4 }}>{opt.emoji}</div>
@@ -504,8 +511,8 @@ export default function CheckInPage() {
                       padding: "8px 4px",
                       border: `1px solid ${form.stressLevel === opt.v ? "#dce6e4" : "var(--line)"}`,
                       borderRadius: 7,
-                      background: form.stressLevel === opt.v ? "rgba(169,160,244,0.1)" : "rgba(0,0,0,0.1)",
-                      color: form.stressLevel === opt.v ? "#a9a0f4" : "var(--muted)",
+                      background: form.stressLevel === opt.v ? "rgba(8,127,120,.12)" : "rgba(0,0,0,0.1)",
+                      color: form.stressLevel === opt.v ? "#1f2e2c" : "var(--muted)",
                       fontSize: 9, cursor: "pointer", textAlign: "center",
                     }}>
                       {opt.label}
@@ -524,8 +531,8 @@ export default function CheckInPage() {
                       padding: "8px 4px",
                       border: `1px solid ${form.anxietyLevel === value ? "#dce6e4" : "var(--line)"}`,
                       borderRadius: 7,
-                      background: form.anxietyLevel === value ? "rgba(169,160,244,0.1)" : "rgba(0,0,0,0.1)",
-                      color: form.anxietyLevel === value ? "#a9a0f4" : "var(--muted)",
+                      background: form.anxietyLevel === value ? "rgba(8,127,120,.12)" : "rgba(0,0,0,0.1)",
+                      color: form.anxietyLevel === value ? "#1f2e2c" : "var(--muted)",
                       fontSize: 9, cursor: "pointer",
                     }}>{["Very Low", "Low", "Moderate", "High", "Very High"][value - 1]}</button>
                   ))}
@@ -633,7 +640,7 @@ export default function CheckInPage() {
               <button className={styles.nextButton} onClick={handleSubmit} disabled={saving} style={{
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "11px 28px", border: 0, borderRadius: 9,
-                color: "#08784f", background: saving ? "#4a9e98" : "#8be8df",
+                color: "var(--primary-on-teal)", background: "var(--primary-teal)",
                 fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer",
                 letterSpacing: "0.04em",
               }}>
@@ -648,8 +655,8 @@ export default function CheckInPage() {
       </main>
 
         <aside className={styles.summaryPanel}><div className={styles.summaryHeader}><div><span className="section-kicker">LIVE PREVIEW</span><h2>Your check-in so far</h2></div></div><section className={styles.summaryGroup}><h3>Vitals</h3>{[
-          { key: "heartRate", label: "Heart rate", unit: "bpm" }, { key: "systolicBP", label: "Systolic BP", unit: "mmHg" }, { key: "diastolicBP", label: "Diastolic BP", unit: "mmHg" }, { key: "bodyTemp", label: "Body temperature", unit: "°C" }, { key: "oxygenSat", label: "Oxygen saturation", unit: "%" }, { key: "bloodGlucose", label: "Fasting blood sugar", unit: "mg/dL" }
-        ].map(({key,label,unit}) => { const raw=form[key as keyof FormState] as string; const value=raw.trim()?Number(raw):null; const t=DEMO_THRESHOLDS[key]; const red=value!==null&&((t.critMin!==undefined&&value<t.critMin)||(t.critMax!==undefined&&value>t.critMax)); const amber=value!==null&&!red&&((t.warnMin!==undefined&&value<t.warnMin)||(t.warnMax!==undefined&&value>t.warnMax)); const verdict=value===null?"Not entered yet":red?"Outside critical demo range":amber?"Outside normal demo range":"Within normal range"; return <div className={styles.summaryReading} key={key}><div><strong>{label}</strong><span>{value===null?"Not entered yet":`${value} ${unit}`}</span></div><p className={value===null?"":red?styles.redVerdict:amber?styles.amberVerdict:styles.greenVerdict}>{verdict}</p>{red&&<small>Follow mission medical procedure and seek immediate review.</small>}{amber&&<small>Recheck the reading and follow mission guidance.</small>}</div>; })}</section><section className={styles.summaryGroup}><h3>Check-in steps</h3>{STEPS.map((label,i)=><div className={styles.summaryStep} key={label}><span className={i<step?styles.stepCheck:styles.stepPending}>{i<step?<Check size={15}/>:i+1}</span><span>{label}</span><small>{i<step?"Complete":i===step?"In progress":"Up next"}</small></div>)}</section><p className={styles.summaryNote}>Demonstration ranges only. This preview is not a medical assessment.</p></aside>
+          { key: "heartRate", label: "Heart rate", unit: "bpm" }, { key: "systolicBP", label: "Systolic BP", unit: "mmHg" }, { key: "diastolicBP", label: "Diastolic BP", unit: "mmHg" }, { key: "bodyTemp", label: "Body temperature", unit: "°C" }, { key: "oxygenSat", label: "Oxygen saturation", unit: "%" }, { key: "bloodGlucose", label: "Fasting blood sugar", unit: "mg/dL" }, { key: "exerciseMinutes", label: "Exercise today", unit: "min" }, { key: "fluidIntakeLitres", label: "Fluid intake today", unit: "L" }
+        ].map(({key,label,unit}) => { const raw=form[key as keyof FormState] as string; const value=raw.trim()?Number(raw):null; const t=DEMO_THRESHOLDS[key]; const red=Boolean(t)&&value!==null&&((t.critMin!==undefined&&value<t.critMin)||(t.critMax!==undefined&&value>t.critMax)); const amber=Boolean(t)&&value!==null&&!red&&((t.warnMin!==undefined&&value<t.warnMin)||(t.warnMax!==undefined&&value>t.warnMax)); const verdict=value===null?"Not entered yet":!t?"Recorded":red?"Outside critical demo range":amber?"Outside normal demo range":"Within normal range"; return <div className={styles.summaryReading} key={key}><div><strong>{label}</strong><span>{value===null?"Not entered yet":`${value} ${unit}`}</span></div><p className={value===null?"":red?styles.redVerdict:amber?styles.amberVerdict:styles.greenVerdict}>{verdict}</p>{red&&<small>Follow mission medical procedure and seek immediate review.</small>}{amber&&<small>Recheck the reading and follow mission guidance.</small>}</div>; })}</section><section className={styles.summaryGroup}><h3>Check-in steps</h3>{STEPS.map((label,i)=><div className={styles.summaryStep} key={label}><span className={i<step?styles.stepCheck:styles.stepPending}>{i<step?<Check size={15}/>:i+1}</span><span>{label}</span><small>{i<step?"Complete":i===step?"In progress":"Up next"}</small></div>)}</section><p className={styles.summaryNote}>Demonstration ranges only. This preview is not a medical assessment.</p></aside>
       </div>
     </div>
   );
@@ -714,7 +721,7 @@ function AssessmentView({ result, statusColor, astronaut, record, saveNotice, on
     const completed=tests.filter(t=>(testValues[t.id]??"").trim());
     if(!completed.length){setAnalysisError("Enter at least one test result before analyzing.");return;}
     setAnalyzing(true);setAnalysisError("");
-    const timestamp=new Date().toISOString();
+    const timestamp=APP_NOW_ISO;
     const text=completed.map(t=>t.name+": "+testValues[t.id]+(testTimes[t.id]?" at "+testTimes[t.id]:"")).join("; ").slice(0,300);
     const updatedRecord:HealthRecord={...record,id:"local-"+astronaut.id+"-"+Date.now(),recordedAt:timestamp,notes:[record.notes,"Follow-up tests: "+text].filter(Boolean).join(" | ")};
     for(const t of completed){const value=Number(testValues[t.id]);if(t.field&&Number.isFinite(value))(updatedRecord[t.field] as number|null)=value;}

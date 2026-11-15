@@ -31,3 +31,5 @@
 .forecastRow>details p{margin:5px 0 8px}
 @media(max-width:760px){.emergencyPanel{grid-column:1;grid-template-columns:minmax(0,1fr);gap:18px}.emergencyBodyColumn .figureWrap{min-height:310px}.emergencyBodyColumn .figure{height:290px;width:min(100%,195px)}.emergencyGaugeGrid{gap:10px}}
 @media(max-width:470px){.emergencyPanel{padding:15px}.emergencyGaugeGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.emergencyGaugeCard{min-height:118px;padding:13px 12px}.emergencyReadingValue strong{font-size:26px}.emergencyReadingValue span{font-size:12px}}
+
+.saveButton{border-color:var(--primary-teal);color:var(--primary-on-teal);background:var(--primary-teal)}.saveButton:hover:not(:disabled){background:#066a64}

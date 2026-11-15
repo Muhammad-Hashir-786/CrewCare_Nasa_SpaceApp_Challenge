@@ -32,6 +32,7 @@ export default function CrewPasswordPage() {
       return;
     }
     localStorage.setItem("crewcare_astronaut_id", crewMember.id);
+    localStorage.setItem("crewcare_astronaut_callsign", crewMember.callsign);
     router.push("/astronaut");
   };
 

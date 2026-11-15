@@ -17,6 +17,18 @@ export interface HealthRecord {
   bloodGlucose?: number | null;
   oxygenSat?: number | null;
   sleepDuration?: number | null;
+  heartRateVariabilityMs?: number | null;
+  respiratoryRatePerMin?: number | null;
+  orthostaticResponseBpm?: number | null;
+  exerciseMinutes?: number | null;
+  weightKg?: number | null;
+  fluidIntakeLitres?: number | null;
+  visionSymptoms?: string | null;
+  acuityChange?: string | null;
+  reactionTimeMs?: number | null;
+  radiationDoseRateMsvPerDay?: number | null;
+  cumulativeRadiationMsv?: number | null;
+  cabinCo2Ppm?: number | null;
   sleepQuality?: number | null;
   mood?: MoodLevel | null;
   fatigue?: FatigueLevel | null;

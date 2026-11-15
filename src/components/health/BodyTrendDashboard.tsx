@@ -2,9 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { ArrowRight } from "lucide-react";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { generateHealthIntelligence } from "@/lib/health/historical-analytics";
 import type { Astronaut, HealthRecord } from "@/types";
+import { formatAppDate } from "@/lib/health/checkin-store";
+import { withSpaceDemoReading } from "@/lib/space-vitals";
 import type { EmergencyType } from "@/lib/emergency/first-aid-guidance";
 import styles from "./body-trend-dashboard.module.css";
 
@@ -23,6 +25,10 @@ const chartSpecs = [
   { key: "systolicBP", label: "Blood pressure", unit: "mmHg", color: "#08784f", second: "diastolicBP" },
   { key: "oxygenSat", label: "Oxygen saturation", unit: "%", color: "#08784f" },
   { key: "sleepDuration", label: "Sleep", unit: "hours", color: "#08784f" },
+  { key: "heartRateVariabilityMs", label: "Heart rate variability · 29 days", unit: "ms", color: "#08784f", warnMin: 50 },
+  { key: "exerciseMinutes", label: "Exercise minutes/day · 29 days", unit: "min", color: "#08784f", warnMin: 120 },
+  { key: "reactionTimeMs", label: "Reaction time · 29 days", unit: "ms", color: "#08784f" },
+  { key: "radiationDoseRateMsvPerDay", label: "Radiation dose rate · 29 days", unit: "mSv/day", color: "#08784f" },
 ] as const;
 const bodySystems: Array<{ id: BodySystem; name: string; metricKeys: string[] }> = [
   { id: "head", name: "Brain & wellbeing", metricKeys: ["mood", "anxietyLevel", "stressLevel", "sleepDuration"] },
@@ -38,7 +44,7 @@ const emergencySystem: Partial<Record<EmergencyType, BodySystem>> = {
   "breathing-trouble": "lungs", "vision-change": "eyes", "heavy-bleeding": "arms", "broken-bone": "legs",
   "fever-infection": "metabolism", "toxic-air": "lungs", "panic-confusion": "head", choking: "lungs", burn: "arms",
 };
-const dateLabel = (date: string | Date) => new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const dateLabel = (date: string | Date) => formatAppDate(date, { month: "short", day: "numeric" });
 const scoreMap: Record<string, number> = { VERY_LOW: 1, LOW: 2, NEUTRAL: 3, GOOD: 4, EXCELLENT: 5, EXHAUSTED: 1, VERY_TIRED: 2, TIRED: 3, MODERATE: 4, REFRESHED: 5 };
 
 function valueFor(record: HealthRecord, key: string): number | null {
@@ -91,12 +97,17 @@ export function BodyTrendDashboard({
 }) {
   const [period, setPeriod] = useState<Period>(initialPeriod);
   const [selectedSystem, setSelectedSystem] = useState<BodySystem | null>(null);
+  const trendRecords = useMemo(() => withSpaceDemoReading(records, person?.id ?? ""), [records, person?.id]);
   const filtered = useMemo(() => {
-    const lastRecorded = records.reduce((latestTimestamp, record) => Math.max(latestTimestamp, new Date(record.recordedAt).getTime()), 0);
+    const lastRecorded = trendRecords.reduce((latestTimestamp, record) => Math.max(latestTimestamp, new Date(record.recordedAt).getTime()), 0);
     const cutoff = lastRecorded - period * 86_400_000;
-    return (period === 365 ? [...records] : [...records].filter((record) => new Date(record.recordedAt).getTime() >= cutoff))
+    return (period === 365 ? [...trendRecords] : [...trendRecords].filter((record) => new Date(record.recordedAt).getTime() >= cutoff))
       .sort((a,b)=>new Date(a.recordedAt).getTime()-new Date(b.recordedAt).getTime());
-  }, [records, period]);
+  }, [trendRecords, period]);
+  const spaceFiltered = useMemo(() => {
+    const latest = trendRecords.reduce((timestamp, record) => Math.max(timestamp, new Date(record.recordedAt).getTime()), 0);
+    return trendRecords.filter((record) => new Date(record.recordedAt).getTime() >= latest - 29 * 86_400_000);
+  }, [trendRecords]);
   const report = useMemo(() => generateHealthIntelligence(records, { phase3Status: (assessmentStatus as "GREEN" | "AMBER" | "RED" | null) ?? null }), [records, assessmentStatus]);
   const latest = filtered.at(-1);
   const gaugeDefinitions: GaugeDefinition[] = [
@@ -155,6 +166,7 @@ export function BodyTrendDashboard({
     for (const anomaly of report.anomalies.filter((item) => selectedRecordIds.has(item.sourceRecordId))) {
       const baseline = report.baselines.find((item) => item.indicator === anomaly.indicator);
       if (!baseline?.sufficient) continue;
+      if (baseline.minimum != null && baseline.maximum != null && anomaly.actualValue >= baseline.minimum && anomaly.actualValue <= baseline.maximum) continue;
       const direction = anomaly.actualValue >= (baseline.mean ?? anomaly.actualValue) ? "higher" : "lower";
       const key = `${anomaly.indicator}:${direction}`;
       groups.set(key, [...(groups.get(key) ?? []), anomaly]);
@@ -184,10 +196,12 @@ export function BodyTrendDashboard({
     <header className={styles.dashboardHeader}><div className={styles.personIdentity}><span className={styles.avatar}>{person ? person.name.split(/\s+/).map((part)=>part[0]).join("").slice(0,2).toUpperCase() : "?"}</span><div><h1>{person?.name ?? "No crew member selected"}</h1><p>{person ? <><strong>{person.callsign}</strong>{" · "}{[person.rank, person.specialty].filter(Boolean).join(" · ")}</> : "Select a crew profile to view personal trends."}</p></div></div><div className={styles.titleAndPeriods}><h2>{heading}</h2><div className={styles.headerActions}><div className={styles.periods} aria-label="Trend period">{periodChoices.map((choice)=><button key={choice.value} type="button" aria-pressed={period===choice.value} className={period===choice.value?styles.periodSelected:styles.periodButton} onClick={()=>setPeriod(choice.value)}>{choice.label}</button>)}</div>{onSaveReport&&<button className={styles.saveButton} type="button" onClick={onSaveReport} disabled={savingReport}>{savingReport?"Saving report…":"Recalculate & save report"}<ArrowRight size={16}/></button>}</div></div>{reportMessage&&<p className={styles.reportMessage} role="status">{reportMessage}</p>}</header>
     <div className={styles.dashboardGrid}>
       <section className={styles.chartColumn} aria-label="Personal trend charts"><div className={styles.columnHeading}><span className={styles.eyebrow}>RECORDED HISTORY</span><h2>Your trends</h2></div>{chartSpecs.map((chart)=>{
-        const data = filtered.map((record)=>({date:dateLabel(record.recordedAt), id:record.id, value:valueFor(record, chart.key), second:"second" in chart ? valueFor(record, chart.second) : null})).filter((point)=>point.value!=null || point.second!=null);
+        const isNewSpaceMetric = ["heartRateVariabilityMs","exerciseMinutes","reactionTimeMs","radiationDoseRateMsvPerDay"].includes(chart.key);
+        const chartRecords = isNewSpaceMetric ? spaceFiltered : filtered;
+        const data = chartRecords.map((record)=>({date:dateLabel(record.recordedAt), id:record.id, value:valueFor(record, chart.key), second:"second" in chart ? valueFor(record, chart.second) : null})).filter((point)=>point.value!=null || point.second!=null);
         const start=data[0]?.value, end=data.at(-1)?.value;
-        const caption=!data.length?"No readings recorded for this period.":start===end?`${chart.label} has stayed close to ${end} ${chart.unit}.`:`${chart.label} is ${end!>start! ? "rising" : "going down"} — from ${start} to ${end} ${chart.unit}.`;
-        return <article className={styles.chartCard} key={chart.key}><div className={styles.chartTop}><h3>{chart.label}</h3><span>{chart.unit}</span></div>{data.length?<ResponsiveContainer width="100%" height={190}><LineChart data={data} margin={{top:12,right:10,bottom:0,left:-15}}><CartesianGrid stroke="rgba(80,110,105,.16)" vertical={false}/><XAxis dataKey="date" tick={{fontSize:10,fill:"#526360"}} axisLine={{stroke:"#dce6e4"}} tickLine={false} minTickGap={20}/><YAxis tick={{fontSize:10,fill:"#526360"}} axisLine={false} tickLine={false} width={43} domain={chart.key === "oxygenSat" ? [96, 99] : ["auto","auto"]}/><Tooltip contentStyle={{background:"#ffffff",border:"1px solid #dce6e4",borderRadius:9,color:"#1f2e2c"}} formatter={(value)=>[`${value ?? "—"} ${chart.unit}`, chart.label]}/><Line type="monotone" dataKey="value" name={chart.label} stroke={chart.color} strokeWidth={2.5} connectNulls dot={{r:2.5,fill:chart.color,strokeWidth:0}} activeDot={{r:5}}/>{"second" in chart&&<Line type="monotone" dataKey="second" name="Diastolic" stroke="#71817e" strokeDasharray="5 4" strokeWidth={2} connectNulls dot={false}/>}</LineChart></ResponsiveContainer>:<div className={styles.chartEmpty}>No data</div>}<p>{caption}</p></article>;
+        const caption=!data.length?"No readings recorded for this period.":isNewSpaceMetric?"Only the current simulated reading is recorded; earlier values are not available.":start===end?`${chart.label} has stayed close to ${end} ${chart.unit}.`:`${chart.label} is ${end!>start! ? "rising" : "going down"} — from ${start} to ${end} ${chart.unit}.`;
+        return <article className={styles.chartCard} key={chart.key}><div className={styles.chartTop}><h3>{chart.label}</h3><span>{chart.unit}</span></div>{data.length?<ResponsiveContainer width="100%" height={190}><LineChart data={data} margin={{top:12,right:10,bottom:0,left:-15}}><CartesianGrid stroke="rgba(80,110,105,.16)" vertical={false}/><XAxis dataKey="date" tick={{fontSize:10,fill:"#526360"}} axisLine={{stroke:"#dce6e4"}} tickLine={false} minTickGap={20}/><YAxis tick={{fontSize:10,fill:"#526360"}} axisLine={false} tickLine={false} width={43} domain={chart.key === "oxygenSat" ? [96, 99] : ["auto","auto"]}/><Tooltip contentStyle={{background:"#ffffff",border:"1px solid #dce6e4",borderRadius:9,color:"#1f2e2c"}} formatter={(value)=>[`${value ?? "—"} ${chart.unit}`, chart.label]}/>{"warnMin" in chart&&<ReferenceLine y={chart.warnMin} stroke="#dbb85f" strokeDasharray="5 4" label={{value: chart.key === "exerciseMinutes" ? "120 min target" : "50 ms baseline", position:"insideTopRight", fontSize:9, fill:"#94600b"}}/>}<Line type="monotone" dataKey="value" name={chart.label} stroke={chart.color} strokeWidth={2.5} connectNulls dot={{r:2.5,fill:chart.color,strokeWidth:0}} activeDot={{r:5}}/>{"second" in chart&&<Line type="monotone" dataKey="second" name="Diastolic" stroke="#71817e" strokeDasharray="5 4" strokeWidth={2} connectNulls dot={false}/>}</LineChart></ResponsiveContainer>:<div className={styles.chartEmpty}>No data</div>}<p>{caption}</p></article>;
       })}</section>
 
       <section className={styles.bodyColumn}><div className={styles.columnHeading}><span className={styles.eyebrow}>PERSONAL HEALTH MAP</span><h2>Tap a body system</h2></div><div className={styles.bodyCard}><div className={styles.bodyLegend}><span><i className={styles.legend_green}/> Steady</span><span><i className={styles.legend_amber}/> Needs attention</span><span><i className={styles.legend_red}/> Act now</span><span><i className={styles.legend_neutral}/> No data</span></div><div className={styles.figureWrap}><HumanFigure tones={tones} onSelect={onBodySelect}/></div><p className={styles.tapHint}>Gray areas show No data. Tap an area to view its baseline and trend.</p>{selectedSystem&&<article className={styles.systemDetails}><div><h3>{bodySystems.find((system)=>system.id===selectedSystem)?.name}</h3><button type="button" onClick={()=>setSelectedSystem(null)} aria-label="Close system details">×</button></div>{systemDetails.length?systemDetails.map(({key,baseline,trend,latestValue,anomaly})=><p key={key}><strong>{baseline?.label ?? key}</strong> · {latestValue==null?"No data":`Latest ${latestValue} ${baseline?.unit??""}`} · {baseline?.sufficient?`Usual ${baseline.minimum}–${baseline.maximum} ${baseline.unit}`:"Not enough personal history"} · {trend?trend.direction==="increasing"?"Going up":trend.direction==="decreasing"?"Going down":trend.direction==="stable"?"Steady":"Not enough records":"No trend available"}{anomaly&&<> · Biggest unusual reading <b>{anomaly.actualValue} {anomaly.unit}</b> on {dateLabel(anomaly.timestamp)}</>}</p>):<p>No data — no recorded measurements are linked to this system in the current records.</p>}<a href="/astronaut/learn#nasa-data-sources" className={styles.honesty} style={{ display: "inline-block", color: "#08784f" }}>Source: personal CrewCare records · NASA HRP context only</a></article>}</div>

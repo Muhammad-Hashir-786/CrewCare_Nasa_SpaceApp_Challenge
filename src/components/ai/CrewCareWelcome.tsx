@@ -5,6 +5,8 @@ import { ArrowRight, Volume2, VolumeX } from "lucide-react";
 import styles from "./CrewCareWelcome.module.css";
 
 let welcomeHasPlayed = false;
+const welcomeDismissedKey = "crewcare_welcome_dismissed";
+const welcomeSessionKey = "crewcare_welcome_session_started";
 
 const welcomeLine = "Welcome to CrewCare, your astronaut health care system. Hello, I'm Nova — I'll look after your health out here.";
 const helloLine = "Hello! Ready when you are.";
@@ -16,11 +18,22 @@ export function CrewCareWelcome() {
   const [waving, setWaving] = useState(false);
   const [greeting, setGreeting] = useState(welcomeLine);
   const [speechUnavailable, setSpeechUnavailable] = useState(false);
-  const timers = useRef<number[]>([]);
   const sceneRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
+    // Keep the dismissal in localStorage, but clear it only when a new browser
+    // session starts. This keeps reloads and in-app navigation quiet.
+    try {
+      if (!sessionStorage.getItem(welcomeSessionKey)) {
+        sessionStorage.setItem(welcomeSessionKey, "1");
+        localStorage.removeItem(welcomeDismissedKey);
+      }
+      if (localStorage.getItem(welcomeDismissedKey) === "1") {
+        welcomeHasPlayed = true;
+        return;
+      }
+    } catch { /* Storage may be unavailable; keep the in-memory behavior. */ }
     const start = window.setTimeout(() => {
       if (cancelled || welcomeHasPlayed) return;
       welcomeHasPlayed = true;
@@ -33,18 +46,14 @@ export function CrewCareWelcome() {
         utterance.onerror = () => setSpeechUnavailable(true);
         window.speechSynthesis.cancel();
         window.speechSynthesis.speak(utterance);
-      } else {
+      } else if (!("speechSynthesis" in window)) {
         setSpeechUnavailable(true);
       }
 
-      timers.current.push(window.setTimeout(() => setLeaving(true), 3550));
-      timers.current.push(window.setTimeout(() => setVisible(false), 4050));
     }, 0);
     return () => {
       cancelled = true;
       window.clearTimeout(start);
-      timers.current.forEach(window.clearTimeout);
-      timers.current = [];
     };
     // The entry greeting is intentionally a one-time event for this page load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -57,14 +66,6 @@ export function CrewCareWelcome() {
     const focusable = () => scene ? Array.from(scene.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])')) : [];
     focusable()[0]?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setLeaving(true);
-        window.speechSynthesis?.cancel();
-        timers.current.forEach(window.clearTimeout);
-        timers.current = [window.setTimeout(() => setVisible(false), 420)];
-        return;
-      }
       if (event.key === "Tab") {
         const items = focusable();
         if (!items.length) { event.preventDefault(); scene?.focus(); return; }
@@ -77,10 +78,10 @@ export function CrewCareWelcome() {
   }, [visible]);
 
   const dismiss = (stopSpeech = true) => {
+    try { localStorage.setItem(welcomeDismissedKey, "1"); } catch { /* ignore */ }
     setLeaving(true);
     if (stopSpeech && "speechSynthesis" in window) window.speechSynthesis.cancel();
-    timers.current.forEach(window.clearTimeout);
-    timers.current = [window.setTimeout(() => setVisible(false), 420)];
+    window.setTimeout(() => setVisible(false), 420);
   };
 
   const speak = (text: string) => {
@@ -88,7 +89,7 @@ export function CrewCareWelcome() {
     setWaving(true);
     window.setTimeout(() => setWaving(false), 900);
     if (!("speechSynthesis" in window) || muted) {
-      setSpeechUnavailable(true);
+      if (!muted) setSpeechUnavailable(true);
       return;
     }
     window.speechSynthesis.cancel();
@@ -101,7 +102,7 @@ export function CrewCareWelcome() {
 
   if (!visible) return null;
 
-  return <div ref={sceneRef} tabIndex={-1} className={`${styles.scene} ${leaving ? styles.leaving : ""}`} role="dialog" aria-modal="true" aria-label="Welcome to CrewCare" onClick={(event) => { if (event.target === event.currentTarget) dismiss(); }}>
+  return <div ref={sceneRef} tabIndex={-1} className={`${styles.scene} ${leaving ? styles.leaving : ""}`} role="dialog" aria-modal="true" aria-label="Welcome to CrewCare">
     <div className={styles.stars} aria-hidden="true">
       {Array.from({ length: 18 }, (_, index) => <i key={index} style={{ "--x": `${(index * 47 + 9) % 100}%`, "--y": `${(index * 31 + 13) % 100}%`, "--delay": `${(index % 7) * -0.8}s`, "--duration": `${7 + index % 5}s` } as CSSProperties}/>) }
     </div>

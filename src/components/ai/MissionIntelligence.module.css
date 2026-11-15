@@ -8,3 +8,5 @@
 .chatError{order:2}.aiChatCard>p:last-child{order:5}
 
 .adviceCards{grid-template-columns:1fr}.adviceCard{grid-template-columns:30px minmax(0,1fr);align-items:start}.adviceCard>div{grid-column:2}.adviceCard small{font-size:12px;line-height:1.45}
+
+.askButton{background:var(--primary-teal)!important;color:var(--primary-on-teal)!important}.askButton:hover:not(:disabled){background:#066a64!important}.section,.section>h2{scroll-margin-top:90px}

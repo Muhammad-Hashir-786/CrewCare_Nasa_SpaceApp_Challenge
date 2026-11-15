@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, AlertTriangle, CheckCircle } from "lucide-react";
 import { DEMO_ALERTS, DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import type { Alert, Astronaut, HealthRecord } from "@/types";
+import { APP_NOW, APP_NOW_ISO, clampToAppToday, formatAppDate, mergeAlertState, mergeDailyRecords } from "@/lib/health/checkin-store";
 import styles from "./MissionAlertsPage.module.css";
 
 type Reading = { date: string; value: number; secondary?: number; record: HealthRecord };
-const dateLabel = (date: string | Date) => new Date(date).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const dateLabel = (date: string | Date) => formatAppDate(date, { month: "short", day: "numeric" });
 const durationLabel = (start: string | Date, end: string | Date) => {
   const hours = Math.max(0, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 3_600_000));
   if (hours < 1) return "Less than 1 hour";
@@ -103,9 +104,16 @@ export default function AlertsPage() {
           saved = baseline;
           localStorage.setItem(key, JSON.stringify(saved));
         }
-        saved.forEach((alert) => byId.set(alert.id, alert));
+        for (const alert of mergeAlertState([...byId.values()], saved)) byId.set(alert.id, { ...alert, createdAt: clampToAppToday(alert.createdAt).toISOString(), acknowledgedAt: alert.acknowledgedAt ? clampToAppToday(alert.acknowledgedAt).toISOString() : null });
       }
-      setCrew(DEMO_ASTRONAUTS);
+      setCrew(DEMO_ASTRONAUTS.map((astronaut) => {
+        let local: HealthRecord[] = [];
+        try {
+          const parsed = JSON.parse(localStorage.getItem(`crewcare_checkins_${astronaut.id}`) ?? "[]");
+          if (Array.isArray(parsed)) local = parsed.filter((record) => record?.id && record.userId === astronaut.id);
+        } catch { /* Use canonical demo history. */ }
+        return { ...astronaut, healthRecords: mergeDailyRecords(astronaut.healthRecords ?? [], local) };
+      }));
       setAlerts([...byId.values()].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     } catch {
       // The bundled demo roster remains available even if browser storage is blocked.
@@ -123,7 +131,7 @@ export default function AlertsPage() {
   const handleAcknowledge = (id: string) => {
     const current = alerts?.find((alert) => alert.id === id);
     if (!current) return;
-    const acknowledged: Alert = { ...current, status: "ACKNOWLEDGED", acknowledgedAt: new Date().toISOString(), acknowledgedBy: "Mission Control (Demo)" };
+    const acknowledged: Alert = { ...current, status: "ACKNOWLEDGED", acknowledgedAt: APP_NOW_ISO, acknowledgedBy: "Mission Control (Demo)" };
     setAlerts((previous) => (previous ?? []).map((alert) => alert.id === id ? acknowledged : alert));
     try {
       const key = `crewcare_demo_alerts_${acknowledged.userId}`;
@@ -169,7 +177,7 @@ export default function AlertsPage() {
   const unit = selected?.metric === "sleepDuration" ? "hours" : selected?.metric === "heartRate+systolicBP" ? "bpm" : "mmHg";
   const chartUnit = selected?.metric === "sleepDuration" ? "hours" : "mmHg";
   const verdict = selected?.threshold == null || selected.value == null ? "No threshold set" : selected.metric === "sleepDuration" ? selected.value < selected.threshold ? "Low" : "In range" : selected.value > selected.threshold ? "High" : "In range";
-  const durationEnd = selected?.status === "ACKNOWLEDGED" && selected.acknowledgedAt ? selected.acknowledgedAt : new Date();
+  const durationEnd = selected?.status === "ACKNOWLEDGED" && selected.acknowledgedAt ? selected.acknowledgedAt : APP_NOW;
 
   if (loading) return <main className={styles.page}><p role="status" className={styles.counts}>Loading alerts…</p></main>;
 

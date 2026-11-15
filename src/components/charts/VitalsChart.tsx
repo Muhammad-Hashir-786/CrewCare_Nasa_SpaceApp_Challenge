@@ -5,6 +5,7 @@ import {
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import type { HealthRecord } from "@/types";
+import { formatAppDate } from "@/lib/health/checkin-store";
 
 interface VitalsChartProps {
   records: HealthRecord[];
@@ -47,7 +48,7 @@ const CustomTooltip = ({ active, payload, label, unit }: CustomTooltipProps) => 
 
 export function VitalsChart({ records, metric, label, unit, color = "#00d4ff", warnMax, warnMin, height = 140, axisLabelColor = "#4a6a8a", axisLabelFontSize = 10 }: VitalsChartProps) {
   const data = records.map((r) => ({
-    date: new Date(r.recordedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    date: formatAppDate(r.recordedAt, { month: "short", day: "numeric" }),
     value: r[metric] as number | null,
   })).filter((d) => d.value != null);
 

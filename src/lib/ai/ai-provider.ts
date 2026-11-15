@@ -98,7 +98,7 @@ export async function requestHealthReasoning(context: unknown, evidence: Evidenc
       response = await fetch(`${config.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { Authorization: `Bearer ${config.apiKey}`, "Content-Type": "application/json" },
-        signal: AbortSignal.timeout(12_000),
+        signal: AbortSignal.timeout(18_000),
         body: JSON.stringify({
           model, temperature: 0.15, max_tokens: 1600, response_format: { type: "json_object" },
           messages: [
@@ -110,7 +110,7 @@ export async function requestHealthReasoning(context: unknown, evidence: Evidenc
       if (response.ok) break;
       if (response.status === 429) throw new AIServiceError("Gemini is receiving too many requests right now. Please wait a moment and try again.", 429, "AI_RATE_LIMITED");
       if (response.status < 500 || index === models.length - 1) {
-        throw new AIServiceError("Crew Care couldn't get a response from its AI service just now. Please try again shortly.", 503, "AI_TEMPORARILY_UNAVAILABLE");
+        throw new AIServiceError("CrewCare AI couldn’t complete that answer. Your question is safe to retry.", 503, "AI_TEMPORARILY_UNAVAILABLE");
       }
       lastFailure = "unavailable";
     } catch (error) {
@@ -118,7 +118,7 @@ export async function requestHealthReasoning(context: unknown, evidence: Evidenc
       lastFailure = error instanceof Error && error.name === "TimeoutError" ? "timeout" : "unavailable";
       if (index === models.length - 1) {
         throw new AIServiceError(
-          lastFailure === "timeout" ? "Crew Care's AI is taking longer than usual. Your question is safe to retry." : "Crew Care couldn't connect to its AI service. Please try again shortly.",
+          "CrewCare AI couldn’t complete that answer. Your question is safe to retry.",
           503,
           lastFailure === "timeout" ? "AI_TIMEOUT" : "AI_PROVIDER_UNAVAILABLE",
         );
@@ -127,15 +127,15 @@ export async function requestHealthReasoning(context: unknown, evidence: Evidenc
     response = null;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  if (!response?.ok) throw new AIServiceError("Crew Care couldn't get a response from its AI service just now. Please try again shortly.", 503, "AI_TEMPORARILY_UNAVAILABLE");
+  if (!response?.ok) throw new AIServiceError("CrewCare AI couldn’t complete that answer. Your question is safe to retry.", 503, "AI_TEMPORARILY_UNAVAILABLE");
   let payload: unknown;
   try { payload = await response.json(); }
-  catch { throw new AIServiceError("AI provider returned an unreadable response. No analysis was generated.", 502, "AI_INVALID_RESPONSE"); }
+  catch { throw new AIServiceError("CrewCare AI couldn’t complete that answer. Your question is safe to retry.", 502, "AI_INVALID_RESPONSE"); }
   const text = (payload as { choices?: Array<{ message?: { content?: unknown } }> })?.choices?.[0]?.message?.content;
-  if (typeof text !== "string") throw new AIServiceError("AI provider returned no structured answer. No analysis was generated.", 502, "AI_INVALID_RESPONSE");
+  if (typeof text !== "string") throw new AIServiceError("CrewCare AI couldn’t complete that answer. Your question is safe to retry.", 502, "AI_INVALID_RESPONSE");
   let decoded: unknown;
   try { decoded = JSON.parse(text); }
-  catch { throw new AIServiceError("AI provider returned invalid JSON. No analysis was generated.", 502, "AI_INVALID_JSON"); }
+  catch { throw new AIServiceError("CrewCare AI couldn’t format that answer. Your question is safe to retry.", 502, "AI_INVALID_JSON"); }
   const normalized = normalizeHomeAnswer(decoded, context, (context as { question?: string })?.question ?? "", evidence);
   return { analysis: validateEvidence(normalized, evidence), provider: config.provider === "openai-compatible" ? new URL(config.baseUrl).hostname : config.provider, model: selectedModel };
 }

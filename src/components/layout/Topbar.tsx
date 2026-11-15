@@ -46,8 +46,14 @@ export function Topbar({
     <>
       <header className={`topbar${keepDemoModeOnMobile ? " topbar-astronaut" : ""}`}>
         <Link href="/" className="brand" aria-label="Crew Care home">
-          <span className="brand-mark">
-            <span className="brand-mark-dot" />
+          <span className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 48" focusable="false">
+              <circle cx="24" cy="27" r="15" />
+              <path d="M11 21q1-9 13-9t13 9M19 12V8h10v4M24 8v8m-4-4h8" />
+              <circle cx="19" cy="26" r="1.4" /><circle cx="29" cy="26" r="1.4" />
+              <path d="M20 32q4 4 8 0M10 26v7q0 6 6 6h3m10 0h3q6 0 6-6v-7" />
+              <circle cx="22" cy="39" r="2.5" />
+            </svg>
           </span>
           <span className="brand-name">
             CREW<span className="brand-accent">CARE</span>

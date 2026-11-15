@@ -3,6 +3,7 @@
 // ALL DATA IS FICTIONAL AND SIMULATED.
 
 import type { Astronaut, Alert, HealthRecord, MoodLevel, FatigueLevel } from "@/types";
+import { APP_NOW, APP_NOW_ISO } from "@/lib/health/checkin-store";
 
 export const DEMO_MISSION = {
   name: "Horizon VII",
@@ -17,13 +18,23 @@ const makeRecords = (
     sleep: number; glucose: number; mood: string; fatigue: string; symptoms?: string;
   }>
 ): HealthRecord[] => {
-  const now = new Date();
+  const now = APP_NOW;
   const first = rows[0];
   // Fill the 23 days before the hand-authored final week so demo analytics can
   // exercise 30-day baselines, trends, and repeated-deviation explanations.
   const earlier = Array.from({ length: Math.max(0, 30 - rows.length) }, (_, i) => {
     const progress = (i + 1) / Math.max(1, 30 - rows.length);
     const seed = { ...first };
+    // Deterministic, small day-to-day variation keeps the illustrative history
+    // from looking like repeated copied rows while preserving its overall shape.
+    const wobble = ((i * 3 + userId.length * 3) % 7) - 3;
+    seed.hr = Math.max(55, Math.min(100, first.hr + wobble));
+    seed.sbp = Math.max(100, Math.min(135, first.sbp + wobble));
+    seed.dbp = Math.max(60, Math.min(90, first.dbp + Math.round(wobble / 2)));
+    seed.temp = Number((first.temp + wobble * 0.03).toFixed(1));
+    seed.o2 = Math.max(95, Math.min(100, first.o2 + (wobble % 2)));
+    seed.sleep = Number(Math.max(5.5, Math.min(9, first.sleep + wobble * 0.15)).toFixed(1));
+    seed.glucose = Math.max(70, Math.min(120, first.glucose + wobble * 2));
     if (userId === "ast-2") seed.sleep = Number((8 - progress * 1.8).toFixed(1));
     if (userId === "ast-3") { seed.sleep = Number((7.8 - progress * 1.2).toFixed(1)); seed.mood = progress > 0.65 ? "LOW" : "GOOD"; }
     if (userId === "ast-4" && i >= 16 && i <= 18) { seed.hr = 96 + (i % 2) * 3; seed.sbp = 142; seed.dbp = 91; seed.sleep = 5.2; seed.symptoms = "Transient palpitations reported"; }
@@ -81,7 +92,7 @@ export const DEMO_ASTRONAUTS: Astronaut[] = [
       details: "Overall health indicators stable. Day 6 showed elevated BP (138/90) and heart rate (88 BPM) with reported mild headache. Resolved next day.",
       guidance: "No action required. Continue daily check-ins. If symptoms return, report to medical officer.",
       flags: [],
-      createdAt: new Date().toISOString(),
+      createdAt: APP_NOW_ISO,
     },
     activeAlerts: [],
   },
@@ -108,7 +119,7 @@ export const DEMO_ASTRONAUTS: Astronaut[] = [
       details: "Consistent sleep, heart rate, blood pressure, and oxygen saturation. No concerning patterns detected.",
       guidance: "Continue current routines. Maintain daily check-ins.",
       flags: [],
-      createdAt: new Date().toISOString(),
+      createdAt: APP_NOW_ISO,
     },
     activeAlerts: [],
   },
@@ -135,7 +146,7 @@ export const DEMO_ASTRONAUTS: Astronaut[] = [
       details: "Blood pressure has increased from 124/82 to 140/92 mmHg over 5 days. Heart rate trending upward (74→90 BPM). Sleep reduced to under 6 hours for 3 consecutive days. Persistent fatigue and headache reported.",
       guidance: "Monitor closely. Consider medical consultation with Mission Control medical officer. Ensure adequate hydration and rest. Report any worsening symptoms immediately via mission protocol.",
       flags: ["BP_TREND_UP", "SLEEP_BELOW_6H", "FATIGUE_PERSISTENT"],
-      createdAt: new Date().toISOString(),
+      createdAt: APP_NOW_ISO,
     },
     activeAlerts: [
       {
@@ -146,9 +157,9 @@ export const DEMO_ASTRONAUTS: Astronaut[] = [
         title: "Blood Pressure Trend — Attention Required",
         message: "CIPHER's systolic BP has exceeded 135 mmHg for 3 consecutive days. Upward trend detected over 5 days.",
         metric: "systolicBP",
-        value: 140,
+        value: 138,
         threshold: 135,
-        createdAt: new Date().toISOString(),
+        createdAt: new Date("2026-11-11T12:00:00+05:00").toISOString(),
       },
       {
         id: "alert-2",
@@ -158,9 +169,9 @@ export const DEMO_ASTRONAUTS: Astronaut[] = [
         title: "Sleep Duration Below Threshold",
         message: "CIPHER has reported less than 6 hours of sleep for 3 consecutive days.",
         metric: "sleepDuration",
-        value: 5.0,
+        value: 5.5,
         threshold: 6.0,
-        createdAt: new Date().toISOString(),
+        createdAt: new Date("2026-11-11T12:00:00+05:00").toISOString(),
       },
     ],
   },
@@ -187,7 +198,7 @@ export const DEMO_ASTRONAUTS: Astronaut[] = [
       details: "The 30-day simulated history contains three elevated cardiovascular check-ins followed by a week of lower readings. This current GREEN assessment reflects only the latest check-in; it does not erase the historical episode.",
       guidance: "Continue check-ins and review the earlier repeated deviations with mission medical support if this were a real mission.",
       flags: [],
-      createdAt: new Date().toISOString(),
+      createdAt: APP_NOW_ISO,
     },
     activeAlerts: [],
   },
@@ -205,9 +216,9 @@ export const DEMO_ALERTS: Alert[] = [
     metric: "systolicBP",
     value: 138,
     threshold: 135,
-    acknowledgedAt: new Date().toISOString(),
+      acknowledgedAt: APP_NOW_ISO,
     acknowledgedBy: "Mission Control",
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
+      createdAt: new Date("2026-11-13T12:00:00+05:00").toISOString(),
   },
   {
     id: "alert-vector-history",
@@ -218,8 +229,8 @@ export const DEMO_ALERTS: Alert[] = [
     message: "Fictional demonstration history: three elevated heart-rate and blood-pressure readings were followed by seven days of readings closer to VECTOR's personal pattern. Historical observation only; current assessment remains separate.",
     metric: "heartRate+systolicBP",
     value: 98,
-    acknowledgedAt: new Date(Date.now() - 6 * 86400000).toISOString(),
+    acknowledgedAt: new Date("2026-11-08T12:00:00+05:00").toISOString(),
     acknowledgedBy: "Mission Control (Demo)",
-    createdAt: new Date(Date.now() - 12 * 86400000).toISOString(),
+    createdAt: new Date("2026-11-02T12:00:00+05:00").toISOString(),
   },
 ];

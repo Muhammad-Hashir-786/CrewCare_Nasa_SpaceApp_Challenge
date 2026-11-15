@@ -5,6 +5,7 @@ import { Activity, AlertTriangle, Check, ChevronDown, ChevronUp, Filter, Table2 
 import { useAstronaut } from "@/lib/astronaut-context";
 import { DEMO_THRESHOLDS, assessHealth } from "@/services/health-assessment";
 import type { HealthRecord } from "@/types";
+import { formatAppDate } from "@/lib/health/checkin-store";
 import styles from "./history.module.css";
 
 type DayStatus = "GREEN" | "AMBER" | "RED";
@@ -12,8 +13,8 @@ type Measurement = { key: string; label: string; value: number; unit: string; di
 
 const moodMap: Record<string, string> = { VERY_LOW: "Very low", LOW: "Low", NEUTRAL: "Neutral", GOOD: "Good", EXCELLENT: "Excellent" };
 const fatigueMap: Record<string, string> = { EXHAUSTED: "Exhausted", VERY_TIRED: "Very tired", TIRED: "Tired", MODERATE: "Moderate", REFRESHED: "Refreshed" };
-const dateLong = (value: Date | string) => new Date(value).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-const dateShort = (value: Date | string) => new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const dateLong = (value: Date | string) => formatAppDate(value, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+const dateShort = (value: Date | string) => formatAppDate(value, { month: "short", day: "numeric" });
 
 function measurements(record: HealthRecord): Measurement[] {
   const configs: Array<{ key: keyof HealthRecord; label: string; unit: string; threshold: keyof typeof DEMO_THRESHOLDS }> = [
@@ -100,7 +101,7 @@ export default function HistoryPage() {
       <div className={styles.summaryHeading}><div><span className={styles.kicker}>YOUR RECENT CHECK-INS</span><h2>{records.length} days shown</h2></div><div className={styles.counts}>
         <div className={styles.countClear}><strong>{counts.clear}</strong><span>days all clear</span></div><div className={styles.countWatch}><strong>{counts.watch}</strong><span>days need attention</span></div>{counts.urgent > 0 && <div className={styles.countUrgent}><strong>{counts.urgent}</strong><span>act now</span></div>}
       </div></div>
-      {records.length ? <div className={styles.dayStrip} aria-label="Day-by-day status, newest first">{markedDays.map(({ record, status }) => <button type="button" key={record.id} className={`${styles.daySquare} ${styles[`square_${status.toLowerCase()}`]}`} onClick={() => jumpTo(record)} aria-label={`${dateLong(record.recordedAt)}: ${status === "GREEN" ? "all clear" : status === "RED" ? "act now" : "needs attention"}`} title={`${dateShort(record.recordedAt)} · ${status === "GREEN" ? "All clear" : status === "RED" ? "Act now" : "Needs attention"}`}><span>{new Date(record.recordedAt).toLocaleDateString("en-US", { day: "numeric" })}</span></button>)}</div> : <p className={styles.emptyInline}>No health records are available for this profile.</p>}
+      {records.length ? <div className={styles.dayStrip} aria-label="Day-by-day status, newest first">{markedDays.map(({ record, status }) => <button type="button" key={record.id} className={`${styles.daySquare} ${styles[`square_${status.toLowerCase()}`]}`} onClick={() => jumpTo(record)} aria-label={`${dateLong(record.recordedAt)}: ${status === "GREEN" ? "all clear" : status === "RED" ? "act now" : "needs attention"}`} title={`${dateShort(record.recordedAt)} · ${status === "GREEN" ? "All clear" : status === "RED" ? "Act now" : "Needs attention"}`}><span>{formatAppDate(record.recordedAt, { day: "numeric" })}</span></button>)}</div> : <p className={styles.emptyInline}>No health records are available for this profile.</p>}
       <div className={styles.legend}><span><i className={styles.greenDot}/>All clear</span><span><i className={styles.amberDot}/>Needs attention</span><span><i className={styles.redDot}/>Act now</span><span className={styles.newestLabel}>Newest first</span></div>
     </section>
 

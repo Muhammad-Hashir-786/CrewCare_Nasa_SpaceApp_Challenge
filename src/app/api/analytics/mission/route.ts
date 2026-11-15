@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { DEMO_ASTRONAUTS, DEMO_MISSION } from "@/lib/demo-data";
 import { prisma, isDatabaseConfigured } from "@/lib/db";
 import { generateHealthIntelligence } from "@/lib/health/historical-analytics";
 import type { Astronaut } from "@/types";
+import { APP_NOW_ISO, countAnomalyDays, mergeDailyRecords } from "@/lib/health/checkin-store";
 
 async function loadCrew(): Promise<{ crew: Astronaut[]; missionId: string | null; simulated: boolean }> {
   if (!isDatabaseConfigured()) return { crew: DEMO_ASTRONAUTS, missionId: null, simulated: true };
@@ -21,13 +22,16 @@ function buildMissionReport(crew: Astronaut[]) {
     const latest = astronaut.healthRecords?.at(-1);
     const thirtyDay = (indicator: string) => report.trends.find((trend) => trend.indicator === indicator && trend.period === "30d");
     const latestHr = latest?.heartRate ?? null;
+    const { days: outOfRangeDayCount, repeatedDays: repeatedOutOfRangeDays } = countAnomalyDays(report.anomalies);
+    const sourceStatus = astronaut.latestAssessment?.status ?? null;
+    const reconciledStatus = sourceStatus === "RED" ? "RED" : sourceStatus === "AMBER" || outOfRangeDayCount > 0 ? "AMBER" : sourceStatus;
     const baselineDeviation = hrBaseline?.sufficient && hrBaseline.standardDeviation && latestHr != null
       ? Number(((latestHr - hrBaseline.median!) / hrBaseline.standardDeviation).toFixed(2)) : null;
     return {
       astronautId: astronaut.id,
       name: astronaut.name,
       callsign: astronaut.callsign,
-      phase3Status: astronaut.latestAssessment?.status ?? null,
+      phase3Status: reconciledStatus,
       recordCount: report.recordCount,
       isSimulated: report.simulatedRecordCount > 0,
       sleepTrend: thirtyDay("sleepDuration"),
@@ -37,8 +41,8 @@ function buildMissionReport(crew: Astronaut[]) {
       sleepBaseline,
       latestHeartRate: latestHr,
       personalHeartRateDeviation: baselineDeviation,
-      anomalyCount: report.anomalies.length,
-      repeatedAnomalyCount: report.anomalies.filter((anomaly) => anomaly.repeated).length,
+      anomalyCount: outOfRangeDayCount,
+      repeatedAnomalyCount: repeatedOutOfRangeDays,
       patterns: report.patterns,
       observations: report.observations,
       dataCompleteness: thirtyDay("heartRate")?.completeness ?? 0,
@@ -48,7 +52,7 @@ function buildMissionReport(crew: Astronaut[]) {
   const totalRecords = allReports.reduce((total, report) => total + report.recordCount, 0);
   const meanCoverage = members.length ? Number((members.reduce((sum, member) => sum + member.dataCompleteness, 0) / members.length).toFixed(2)) : 0;
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt: APP_NOW_ISO,
     mission: DEMO_MISSION,
     crewCount: members.length,
     totalRecords,
@@ -78,9 +82,13 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
-    const { crew, missionId, simulated } = await loadCrew();
+    const loaded = await loadCrew();
+    const body = await request.json().catch(() => ({})) as { demoStates?: Array<{ astronautId: string; records?: Astronaut["healthRecords"] }> };
+    const localStates = new Map((body.demoStates ?? []).map((state) => [state.astronautId, state.records ?? []]));
+    const crew = loaded.crew.map((astronaut) => ({ ...astronaut, healthRecords: mergeDailyRecords(astronaut.healthRecords ?? [], localStates.get(astronaut.id) ?? []) }));
+    const { missionId, simulated } = loaded;
     const report = buildMissionReport(crew);
     if (!isDatabaseConfigured() || !missionId) return NextResponse.json({ report, persisted: false, isSimulated: true });
     const payload = JSON.parse(JSON.stringify(report)) as Prisma.InputJsonValue;

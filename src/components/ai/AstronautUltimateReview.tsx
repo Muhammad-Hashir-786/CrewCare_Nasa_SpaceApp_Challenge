@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronUp, Moon, Send, ShieldCheck, Sparkles } from "lucide-react";
+import { Activity, AlertTriangle, ArrowDown, ArrowUp, Check, ChevronDown, ChevronUp, Moon, RotateCcw, Send, ShieldCheck, Sparkles } from "lucide-react";
 import type { Astronaut, HealthRecord } from "@/types";
+import { formatAppDate } from "@/lib/health/checkin-store";
 import { generateHealthIntelligence } from "@/lib/health/historical-analytics";
 import { DEMO_THRESHOLDS, assessHealth } from "@/services/health-assessment";
 import { SAMPLE_MEDICAL_KIT } from "@/lib/emergency/first-aid-guidance";
 import styles from "./AstronautUltimateReview.module.css";
+import { CLARIFY_HEALTH_QUESTION, isTriageHealthQuestion, vagueHealthClarification } from "@/lib/ai/chat-behavior";
+import { useRetryCountdown } from "@/hooks/useRetryCountdown";
 
 type Period = "24h" | "7d" | "30d" | "90d" | "mission";
 type Review = {
@@ -22,7 +25,7 @@ type Review = {
   missingInformation?: string[];
   limitations?: string[];
 };
-type ChatMessage = { role: "user" | "assistant"; text: string; answer?: Review; dataUsed?: string; scopeNote?: string };
+type ChatMessage = { role: "user" | "assistant"; text: string; answer?: Review; dataUsed?: string; scopeNote?: string; showTriage?: boolean };
 
 const periodDays: Record<Exclude<Period, "mission">, number> = { "24h": 1, "7d": 7, "30d": 30, "90d": 90 };
 const prompts = ["How am I doing today?", "What changed this week?", "Explain my latest assessment", "How is my sleep compared with baseline?"];
@@ -36,7 +39,7 @@ const readout = (value: unknown) => typeof value === "string" ? value
   .replace(/\bSD\b/gi, "")
   .replace(/\bmedian\b/gi, "usual midpoint")
   .replace(/\s+/g, " ").trim() : "";
-const dateLabel = (date: Date | string) => new Date(date).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+const dateLabel = (date: Date | string) => formatAppDate(date, { day: "numeric", month: "short" });
 const statusText = (verdict?: Review["verdict"]) => verdict === "ACT_NOW" ? "Act now" : verdict === "WATCH" ? "Needs attention" : "All clear";
 
 export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut }) {
@@ -48,6 +51,10 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
   const [question, setQuestion] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
+  const [retryRequest, setRetryRequest] = useState<{ displayText: string; requestText: string; history: Array<{ role: "user" | "assistant"; text: string }> } | null>(null);
+  const [reviewRetryAttempt, setReviewRetryAttempt] = useState(0);
+  const retryCountdown = useRetryCountdown();
+  const { seconds: reviewRetrySeconds, start: startReviewRetryCountdown, clear: clearReviewRetryCountdown } = useRetryCountdown();
   const [showEvidence, setShowEvidence] = useState(false);
   const [chatOwner, setChatOwner] = useState(astronaut.id);
   const activeMessages = chatOwner === astronaut.id ? messages : [];
@@ -81,38 +88,49 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
             demoStates: [{ astronautId: astronaut.id, records: records.map((r) => ({ ...r, recordedAt: new Date(r.recordedAt).toISOString() })), latestAssessment: astronaut.latestAssessment ? { ...astronaut.latestAssessment, createdAt: new Date(astronaut.latestAssessment.createdAt).toISOString() } : null, activeAlerts: (astronaut.activeAlerts ?? []).filter((a) => a.status === "ACTIVE").map((a) => ({ ...a, createdAt: new Date(a.createdAt).toISOString(), acknowledgedAt: a.acknowledgedAt ? new Date(a.acknowledgedAt).toISOString() : null, acknowledgedBy: a.acknowledgedBy ?? null, metric: a.metric ?? null, value: a.value ?? null, threshold: a.threshold ?? null })) }],
           }),
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error ?? "The AI review could not be loaded.");
-        if (active) setReview(data.analysis as Review);
-      } catch (error) { if (active) setReviewError(error instanceof Error ? error.message : "The AI review could not be loaded."); }
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { startReviewRetryCountdown(data.retryAfterSeconds); throw new Error(response.status === 429 ? "rate" : "retry"); }
+        if (active) { setReview(data.analysis as Review); clearReviewRetryCountdown(); }
+      } catch { if (active) setReviewError("CrewCare AI couldn’t complete this review. Your question is safe to retry."); }
       finally { if (active) setLoadingReview(false); }
     };
     void run();
     return () => { active = false; };
-  }, [astronaut, period, records, promptContext]);
+  }, [astronaut, period, records, promptContext, reviewRetryAttempt, startReviewRetryCountdown, clearReviewRetryCountdown]);
 
-  const ask = async (prompt = question, contextualPrompt?: string) => {
-    const displayText = prompt.trim();
-    const text = (contextualPrompt ?? prompt).trim();
-    if (text.length < 4 || chatLoading) return;
+  const ask = async (prompt = question, contextualPrompt?: string, retry = false) => {
+    const displayText = (retry ? retryRequest?.displayText : prompt)?.trim() ?? "";
+    const text = (retry ? retryRequest?.requestText : contextualPrompt ?? prompt)?.trim() ?? "";
+    if (text.length < 4 || chatLoading || (!retry && retryCountdown.seconds > 0)) return;
+    if (!retry && vagueHealthClarification(displayText)) {
+      setMessages((items) => [...(chatOwner === astronaut.id ? items : []), { role: "user", text: displayText }, { role: "assistant", text: CLARIFY_HEALTH_QUESTION }]);
+      setChatOwner(astronaut.id); setQuestion(""); setChatError(""); setRetryRequest(null); retryCountdown.clear(); return;
+    }
+    const history = retry ? retryRequest?.history ?? [] : activeMessages.map((message) => ({ role: message.role, text: message.role === "assistant" && message.answer ? `Verdict: ${statusText(message.answer.verdict)}. What this could mean: ${readout(message.answer.whatThisCouldMean)}. What to do right now: ${(message.answer.whatToDoNow ?? []).map((step, i) => `${i + 1}. ${readout(step)}`).join(" ")}. Watch out for: ${(message.answer.watchOutFor ?? []).map(readout).join(" ")}. When to get help immediately: ${readout(message.answer.whenToGetHelpImmediately)}.`.slice(0, 4000) : readout(message.text) })).slice(-100);
     setChatLoading(true); setChatError("");
-    if (chatOwner !== astronaut.id) { setChatOwner(astronaut.id); setMessages([{ role: "user", text: displayText }]); }
-    else setMessages((items) => [...items, { role: "user", text: displayText }]);
+    if (!retry) {
+      if (chatOwner !== astronaut.id) { setChatOwner(astronaut.id); setMessages([{ role: "user", text: displayText }]); }
+      else setMessages((items) => [...items, { role: "user", text: displayText }]);
+    }
     setQuestion("");
     try {
-      const history = activeMessages.map((message) => ({ role: message.role, text: message.role === "assistant" && message.answer ? `Verdict: ${statusText(message.answer.verdict)}. What this could mean: ${readout(message.answer.whatThisCouldMean)}. What to do right now: ${(message.answer.whatToDoNow ?? []).map((step, i) => `${i + 1}. ${readout(step)}`).join(" ")}. Watch out for: ${(message.answer.watchOutFor ?? []).map(readout).join(" ")}. When to get help immediately: ${readout(message.answer.whenToGetHelpImmediately)}.`.slice(0, 4000) : readout(message.text) })).slice(-100);
       const scopeInstruction = isCrewWideQuestion(displayText) ? `This is an astronaut-only chat for ${astronaut.name}. Answer only from ${astronaut.name}'s supplied data. The question asks about the whole crew; clearly say you can cover only ${astronaut.name} and do not invent or infer other crew members' data. ` : "";
       const response = await fetch("/api/ai/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: "astronaut", astronautId: astronaut.id, question: `${scopeInstruction}${text.slice(0, 500)}. Use only supplied data, do not invent details or mention IDs. ${promptContext}`.slice(0, 1000), period, conversationHistory: history, demoStates: [{ astronautId: astronaut.id, records: records.map((r) => ({ ...r, recordedAt: new Date(r.recordedAt).toISOString() })), latestAssessment: astronaut.latestAssessment ? { ...astronaut.latestAssessment, createdAt: new Date(astronaut.latestAssessment.createdAt).toISOString() } : null, activeAlerts: (astronaut.activeAlerts ?? []).filter((a) => a.status === "ACTIVE").map((a) => ({ ...a, createdAt: new Date(a.createdAt).toISOString(), acknowledgedAt: a.acknowledgedAt ? new Date(a.acknowledgedAt).toISOString() : null, acknowledgedBy: a.acknowledgedBy ?? null, metric: a.metric ?? null, value: a.value ?? null, threshold: a.threshold ?? null })) }] }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "The assistant could not answer right now.");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { retryCountdown.start(data.retryAfterSeconds); throw new Error(response.status === 429 ? "rate" : "retry"); }
+      retryCountdown.clear(); setRetryRequest(null);
       const a = data.analysis as Review;
       const source = latest ? `Using ${astronaut.name}'s latest check-in (${dateLabel(latest.recordedAt)})${latest.heartRate != null ? `: heart rate ${latest.heartRate} bpm` : ""}${latest.systolicBP != null && latest.diastolicBP != null ? `, blood pressure ${latest.systolicBP}/${latest.diastolicBP}` : ""}${latest.oxygenSat != null ? `, oxygen ${latest.oxygenSat}%` : ""}.` : `No stored check-in is available for ${astronaut.name}.`;
       const scopeNote = isCrewWideQuestion(displayText) ? `This chat covers ${astronaut.name} only — for the whole crew, ask in Mission intelligence.` : undefined;
-      setMessages((items) => [...(chatOwner === astronaut.id ? items : [{ role: "user" as const, text: readout(displayText) }]), { role: "assistant", text: readout(a.summary) || "No answer text was returned.", answer: a, dataUsed: readout(source), scopeNote }]);
-    } catch (error) { setChatError(error instanceof Error ? error.message : "The assistant could not answer right now."); }
+      const showTriage = isTriageHealthQuestion(text) || (Boolean(contextualPrompt) && activeMessages.at(-1)?.showTriage === true);
+      setMessages((items) => [...(chatOwner === astronaut.id ? items : retry ? [] : [{ role: "user" as const, text: readout(displayText) }]), { role: "assistant", text: readout(a.summary) || "No answer text was returned.", answer: a, dataUsed: readout(source), scopeNote, showTriage }]);
+    } catch (cause) {
+      setChatError(cause instanceof Error && cause.message === "rate" ? "CrewCare AI is busy right now. Your question is safe to retry." : "CrewCare AI couldn’t complete that answer. Your question is safe to retry.");
+      if (!retry) setRetryRequest({ displayText, requestText: text, history });
+    }
     finally { setChatLoading(false); }
   };
-  const clearConversation = () => { setMessages([]); setChatError(""); setQuestion(""); };
+  const clearConversation = () => { setMessages([]); setChatError(""); setQuestion(""); setRetryRequest(null); retryCountdown.clear(); };
 
   const attention = latest ? getAttention(latest, assessment) : [];
   const baselineKeys = ["heartRate", "sleepDuration", "stressLevel", "mood"];
@@ -130,7 +148,7 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
       <div className={styles.verdictTop}><span className={`${styles.verdict} ${styles[displayedVerdict.toLowerCase()]}`}><span className={styles.dot}/>{statusText(displayedVerdict)}</span><span className={styles.tag}><Sparkles size={14}/>{loadingReview ? "Preparing AI review…" : review ? "Personal health review" : "Health review"}</span></div>
       <h2>{readout(review?.title) || `Your ${period === "mission" ? "mission" : period} health summary`}</h2>
       <p className={styles.lead}>{readout(review?.summary) || readout(review?.whatThisCouldMean) || (latest ? assessment?.summary : "No check-in data is available for this profile yet.")}</p>
-      {reviewError && <p role="status" className={styles.inlineNote}>AI review unavailable: {reviewError} The measured-data summary below remains available.</p>}
+      {reviewError && <p role="alert" className={styles.inlineNote}>{reviewError} {reviewRetrySeconds > 0 && <span>Try again in {reviewRetrySeconds} seconds. </span>}<button type="button" onClick={() => { setReviewError(""); clearReviewRetryCountdown(); setReviewRetryAttempt((value) => value + 1); }} disabled={loadingReview || reviewRetrySeconds > 0}><RotateCcw size={13}/> Retry</button></p>}
       {review?.missingInformation?.length ? <p className={styles.inlineNote}>Missing information: {review.missingInformation.map(readout).filter(Boolean).join(" · ")}</p> : null}
       <p className={styles.meta}>{checkInCount} {checkInCount === 1 ? "check-in" : "check-ins"} in the selected period{latestDate ? ` — latest ${dateLabel(latestDate)}` : ""} · <a href="/astronaut/history">Open health history</a></p>
     </section>
@@ -182,10 +200,10 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
     <section className={styles.section}>
       <SectionTitle title="Ask a follow-up" subtitle="Questions use the same CrewCare AI assistant and this astronaut’s available records." />
       <div className={`${styles.card} ${styles.chat}`}>
-        <div className={styles.chips}>{prompts.map((prompt) => <button key={prompt} type="button" onClick={() => void ask(prompt)} disabled={chatLoading}>{prompt}</button>)}</div>
+        <div className={styles.chips}>{prompts.map((prompt) => <button key={prompt} type="button" onClick={() => void ask(prompt)} disabled={chatLoading || retryCountdown.seconds > 0}>{prompt}</button>)}</div>
         {activeMessages.map((message, index) => <div className={message.role === "user" ? styles.userBubble : styles.answerBubble} key={`${message.role}-${index}`}><span>{message.role === "user" ? "You" : "CrewCare AI"}</span>{message.role === "user" ? <p>{readout(message.text)}</p> : message.answer ? <div>
           {message.scopeNote && <p className={styles.meta}>{readout(message.scopeNote)}</p>}
-          <span className={`${styles.verdict} ${styles[(message.answer.verdict ?? "ALL_CLEAR").toLowerCase()]}`}><span className={styles.dot}/>{statusText(message.answer.verdict)}</span>
+          {message.showTriage && <span className={`${styles.verdict} ${styles[(message.answer.verdict ?? "ALL_CLEAR").toLowerCase()]}`}><span className={styles.dot}/>{statusText(message.answer.verdict)}</span>}
           <p className={styles.meta}>{readout(message.dataUsed)}</p>
           <section className={styles.chatAnswerSection}><h3>What this could mean</h3><p>{readout(message.answer.whatThisCouldMean ?? message.answer.summary)}</p></section>
           <section className={styles.chatAnswerSection}><h3>What to do right now</h3><ol>{(message.answer.whatToDoNow ?? []).slice(0, 5).map((step, i) => <li key={i}>{readout(step)}</li>)}</ol></section>
@@ -195,8 +213,9 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
         </div> : <p>{readout(message.text)}</p>}</div>)}
         {chatLoading && <p role="status" className={styles.inlineNote}>CrewCare AI is considering your question and the conversation so far…</p>}
         <div className={styles.chatSessionControls}><button type="button" className={styles.textButton} onClick={clearConversation}>New conversation</button><span>This conversation is kept while you stay on this page.</span></div>
-        {chatError && <p role="alert" className={styles.inlineNote}>{chatError}</p>}
-        <form className={styles.chatForm} onSubmit={(event) => { event.preventDefault(); void ask(); }}><input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about your health trends…" maxLength={600}/><button disabled={chatLoading || question.trim().length < 4}>{chatLoading ? "Thinking…" : <><Send size={16}/> Ask CrewCare</>}</button></form>
+        {chatError && <p role="alert" className={styles.inlineNote}>{chatError} {retryCountdown.seconds > 0 && <span>Try again in {retryCountdown.seconds} seconds. </span>}<button type="button" onClick={() => { if (retryRequest) void ask(retryRequest.displayText, retryRequest.requestText, true); }} disabled={chatLoading || !retryRequest || retryCountdown.seconds > 0}><RotateCcw size={13}/> Retry</button></p>}
+        {!chatError && retryCountdown.seconds > 0 && <p role="status" className={styles.inlineNote}>Try again in {retryCountdown.seconds} seconds.</p>}
+        <form className={styles.chatForm} onSubmit={(event) => { event.preventDefault(); void ask(); }}><input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about your health trends…" maxLength={600}/><button disabled={chatLoading || retryCountdown.seconds > 0 || question.trim().length < 4}>{chatLoading ? "Thinking…" : <><Send size={16}/> Ask CrewCare</>}</button></form>
       </div>
     </section>
       <p className={styles.safety}>CrewCare is not a doctor — this is guidance until professional help arrives. All health data shown is fictional and simulated for demonstration.</p>

@@ -18,7 +18,7 @@ export const EMERGENCY_TYPES: Array<{ id: EmergencyType; label: string; symbol: 
   { id: "panic-confusion", label: "Panic, confusion or severe distress", symbol: "…", spaceRisk: true },
   { id: "choking", label: "Choking", symbol: "↗" },
   { id: "burn", label: "Burn", symbol: "≈" },
-  { id: "other", label: "Other", symbol: "?" },
+  { id: "other", label: "Unable to identify situation", symbol: "?" },
 ];
 
 // Only this AHA-listed example item is configured. This is a simulated reference list,
@@ -43,7 +43,7 @@ export function getSpaceRiskNote(type: EmergencyType): string | null {
     case "heavy-bleeding": return "Distance from Earth can delay outside medical help, so begin direct pressure while another crew member prepares to report the situation.";
     case "choking": return "Distance from Earth is a recognized spaceflight hazard; start the first-aid actions while another crew member reports the emergency.";
     case "burn": return "Distance from Earth is a recognized spaceflight hazard; begin cooling and protecting the area while another crew member reports the injury.";
-    case "other": return "Spaceflight hazards can interact; use the mission procedure and describe the observed problem without guessing its cause.";
+    case "other": return "When the cause is unclear, focus on immediate safety and observable changes. Do not guess the cause; use the crew's approved emergency procedure.";
   }
 }
 
@@ -149,11 +149,11 @@ export function getFirstAidSteps(type: EmergencyType, breathing: "YES" | "NO" | 
       { title: "Report while cooling", instruction: "Keep the person warm and comfortable while cooling. Have another crew member alert mission control / the flight surgeon." },
     ];
     case "other": return [
-      { title: "Make the area safe", instruction: "Avoid the hazard and keep the person still in a safe place. Do not give food, drink, or medicine if they are confused, unconscious, or unable to swallow." },
-      { title: "Check the basics", instruction: "Check whether they are conscious, breathing normally, or bleeding heavily. If not breathing normally, use the collapsed / not responding steps; for heavy bleeding, use those steps." },
-      { title: "Describe what happened", instruction: "Use the optional details box to note what happened, when it started, and any changes. The steps on this screen remain available without AI or network access." },
-      { title: "Watch for worsening", instruction: "If they become unresponsive, have difficulty breathing, or develop heavy bleeding, switch to the matching emergency steps now." },
-      { title: "Report while care continues", instruction: "Alert mission control / the flight surgeon as soon as the channel allows." },
+      { title: "Make the area safe", instruction: "Avoid any immediate hazard and move to a safe place only if the approved procedure allows. Keep the person still and stay with them." },
+      { title: "Check responsiveness and breathing", instruction: "Ask the quick Yes/No questions on this screen. If they are unresponsive or not breathing normally, switch to Collapsed / not responding and begin those steps immediately." },
+      { title: "Check for heavy bleeding", instruction: "Look for visible heavy bleeding. If present, select Heavy bleeding and press firmly with a clean cloth; do not delay pressure to identify the cause." },
+      { title: "Do not guess or give anything by mouth", instruction: "Describe only what you can see and when it began. Do not give food, drink, or medicine if the person is confused, unconscious, or unable to swallow." },
+      { title: "Keep watching and report", instruction: "Watch for changes in breathing, responsiveness, bleeding, or symptoms. Alert mission control / the flight surgeon as soon as the channel allows." },
     ];
   }
 }

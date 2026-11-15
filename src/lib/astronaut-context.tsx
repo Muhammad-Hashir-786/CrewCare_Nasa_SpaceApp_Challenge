@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import type { Alert, Astronaut } from "@/types";
+import { clampToAppToday, mergeAlertState, mergeDailyRecords, upsertDailyRecords } from "@/lib/health/checkin-store";
 
 interface AstronautContextValue {
   astronaut: Astronaut;
@@ -24,27 +25,29 @@ export function AstronautProvider({ children, astronauts = DEMO_ASTRONAUTS }: { 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const saved = localStorage.getItem("crewcare_astronaut_id");
-      if (saved && astronauts.some((a) => a.id === saved)) setId(saved);
+      const savedCallsign = localStorage.getItem("crewcare_astronaut_callsign")?.toUpperCase();
+      const sessionMember = savedCallsign ? astronauts.find((member) => member.callsign.toUpperCase() === savedCallsign) : undefined;
+      const idMember = saved ? astronauts.find((member) => member.id === saved) : undefined;
+      if (sessionMember ?? idMember) setId((sessionMember ?? idMember)!.id);
       setCrew(astronauts.map((member) => {
         let healthRecords = member.healthRecords ?? [];
         const stored = localStorage.getItem(`crewcare_checkins_${member.id}`);
         if (stored) try {
           const records = JSON.parse(stored);
           if (Array.isArray(records)) {
-            const existing = new Set(healthRecords.map((record) => record.id));
-            healthRecords = [...healthRecords, ...records.filter((record: { id?: string }) => record?.id && !existing.has(record.id))];
+            healthRecords = mergeDailyRecords(healthRecords, records.filter((record: { id?: string }) => record?.id));
           }
         } catch { /* Ignore malformed local demo records. */ }
         let latestAssessment = member.latestAssessment;
         try {
-          const savedAssessment = JSON.parse(localStorage.getItem(`crewcare_assessment_${member.id}`) ?? "null");
+          const storedAssessment = JSON.parse(localStorage.getItem(`crewcare_assessment_${member.id}`) ?? "null");
+          const savedAssessment = storedAssessment?.createdAt ? { ...storedAssessment, createdAt: clampToAppToday(storedAssessment.createdAt).toISOString() } : storedAssessment;
           if (savedAssessment?.id && (!latestAssessment || new Date(savedAssessment.createdAt).getTime() >= new Date(latestAssessment.createdAt).getTime())) latestAssessment = savedAssessment;
         } catch { /* Ignore malformed local demo assessment. */ }
         let activeAlerts = member.activeAlerts ?? [];
         try {
           const savedAlerts = JSON.parse(localStorage.getItem(`crewcare_demo_alerts_${member.id}`) ?? "[]") as Alert[];
-          const byId = new Map([...activeAlerts, ...savedAlerts].map((alert) => [alert.id, alert]));
-          activeAlerts = [...byId.values()].filter((alert) => alert.status === "ACTIVE");
+          activeAlerts = mergeAlertState(activeAlerts, savedAlerts).filter((alert) => alert.status === "ACTIVE");
         } catch { /* Ignore malformed local demo alerts. */ }
         return { ...member, healthRecords, latestAssessment, activeAlerts };
       }));
@@ -53,10 +56,12 @@ export function AstronautProvider({ children, astronauts = DEMO_ASTRONAUTS }: { 
   }, [astronauts]);
 
   const setAstronautId = (newId: string) => {
-    if (!crew.some((member) => member.id === newId)) return;
-    setId(newId);
+    const member = crew.find((candidate) => candidate.id === newId);
+    if (!member) return;
+    setId(member.id);
     if (typeof window !== "undefined") {
       localStorage.setItem("crewcare_astronaut_id", newId);
+      localStorage.setItem("crewcare_astronaut_callsign", member.callsign);
     }
   };
 
@@ -66,11 +71,11 @@ export function AstronautProvider({ children, astronauts = DEMO_ASTRONAUTS }: { 
       id: `demo-alert-${assessment.id}`, userId: record.userId, severity: isCritical ? "CRITICAL" : "HIGH", status: "ACTIVE",
       title: isCritical ? "Critical demo assessment — immediate review" : "Warning demo assessment — review required",
       message: `${assessment.summary} ${assessment.details ?? ""} ${assessment.guidance ?? ""}`.trim(),
-      metric: assessment.flags[0] ?? "healthAssessment", createdAt: new Date(assessment.createdAt).toISOString(),
+      metric: assessment.flags[0] ?? "healthAssessment", createdAt: clampToAppToday(assessment.createdAt).toISOString(),
     } : null;
     setCrew((members) => members.map((member) => member.id === record.userId ? {
       ...member,
-      healthRecords: [...(member.healthRecords ?? []).filter((item) => item.id !== record.id), record].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime()),
+      healthRecords: upsertDailyRecords(member.healthRecords ?? [], record),
       latestAssessment: assessment,
       activeAlerts: demoAlert ? [...(member.activeAlerts ?? []).filter((alert) => alert.id !== demoAlert.id), demoAlert] : member.activeAlerts,
     } : member));
@@ -78,7 +83,7 @@ export function AstronautProvider({ children, astronauts = DEMO_ASTRONAUTS }: { 
       const key = `crewcare_checkins_${record.userId}`;
       try {
         const previous = JSON.parse(localStorage.getItem(key) ?? "[]");
-        localStorage.setItem(key, JSON.stringify([...previous.filter((item: { id?: string }) => item?.id !== record.id), record].slice(-180)));
+        localStorage.setItem(key, JSON.stringify(upsertDailyRecords(previous, record).slice(-180)));
       } catch { localStorage.setItem(key, JSON.stringify([record])); }
       localStorage.setItem(`crewcare_assessment_${record.userId}`, JSON.stringify(assessment));
       if (demoAlert) {

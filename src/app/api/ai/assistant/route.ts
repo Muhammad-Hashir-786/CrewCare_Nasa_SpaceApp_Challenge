@@ -4,8 +4,9 @@ import { AIServiceError, requestHealthReasoning } from "@/lib/ai/ai-provider";
 import { buildLatestAstronautAIContext, buildMissionAIContext, buildGeneralAIContext } from "@/lib/ai/ai-context-builder";
 import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import { validateDemoStates } from "@/lib/ai/demo-state";
+import { APP_NOW_ISO } from "@/lib/health/checkin-store";
 
-export const maxDuration = 40;
+export const maxDuration = 60;
 
 const RequestSchema = z.object({
   scope: z.enum(["general", "astronaut", "mission"]), astronautId: z.string().max(80).optional(),
@@ -15,7 +16,7 @@ const RequestSchema = z.object({
   demoStates: z.unknown().optional(),
 });
 const limitByClient = new Map<string, { start: number; count: number }>();
-const MAX_REQUESTS_PER_WINDOW = 8;
+const MAX_REQUESTS_PER_WINDOW = 20;
 const WINDOW_MS = 5 * 60_000;
 const inFlight = new Map<string, Promise<Awaited<ReturnType<typeof requestHealthReasoning>>>>();
 const HEALTH_REFERENCES = [
@@ -29,19 +30,19 @@ export async function POST(request: NextRequest) {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > 1_000_000) return NextResponse.json({ error: "The assistant context request is too large." }, { status: 413 });
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local-demo";
-  const now = Date.now();
-  const bucket = limitByClient.get(ip);
-  if (bucket && now - bucket.start < WINDOW_MS && bucket.count >= MAX_REQUESTS_PER_WINDOW) {
-    return NextResponse.json({ error: "Too many AI requests. Please wait a few minutes before trying again.", code: "AI_RATE_LIMITED" }, { status: 429 });
-  }
-  limitByClient.set(ip, !bucket || now - bucket.start >= WINDOW_MS ? { start: now, count: 1 } : { ...bucket, count: bucket.count + 1 });
-  if (limitByClient.size > 1000) for (const [key, value] of limitByClient) if (now - value.start >= WINDOW_MS) limitByClient.delete(key);
-
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Request body must be valid JSON" }, { status: 400 }); }
   const parsed = RequestSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Provide a question between 4 and 600 characters and a supported analysis period." }, { status: 400 });
   const input = parsed.data;
+  const now = Date.now();
+  const bucketKey = `${ip}:${input.scope}`;
+  const bucket = limitByClient.get(bucketKey);
+  if (bucket && now - bucket.start < WINDOW_MS && bucket.count >= MAX_REQUESTS_PER_WINDOW) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((WINDOW_MS - (now - bucket.start)) / 1000));
+    return NextResponse.json({ error: "CrewCare AI is busy right now.", code: "AI_RATE_LIMITED", retryAfterSeconds }, { status: 429 });
+  }
+  if (limitByClient.size > 1000) for (const [key, value] of limitByClient) if (now - value.start >= WINDOW_MS) limitByClient.delete(key);
   let demoStates;
   try { demoStates = input.scope === "general" ? [] : validateDemoStates(input.demoStates, new Set(DEMO_ASTRONAUTS.map((item) => item.id))); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid demo state" }, { status: 400 }); }
@@ -65,13 +66,18 @@ export async function POST(request: NextRequest) {
       inFlight.set(dedupeKey, operation);
     }
     const result = await operation;
+    const completedAt = Date.now();
+    const completedBucket = limitByClient.get(bucketKey);
+    limitByClient.set(bucketKey, !completedBucket || completedAt - completedBucket.start >= WINDOW_MS
+      ? { start: completedAt, count: 1 }
+      : { ...completedBucket, count: completedBucket.count + 1 });
     const subjects = context.subjects;
     const criticalAlerts = input.scope === "general" ? [] : subjects.flatMap((member) => member.activeAlerts.filter((alert) => alert.severity === "CRITICAL").map((alert) => ({ ...alert, astronautId: member.id, callsign: member.callsign })));
-    return NextResponse.json({ ...result, generatedAt: new Date().toISOString(), scope: input.scope, period: input.period, isSimulated: true, deterministicAssessments: subjects.map((member) => ({ astronautId: member.id, callsign: member.callsign, assessment: member.latestAssessment })), criticalAlerts });
+    return NextResponse.json({ ...result, generatedAt: APP_NOW_ISO, scope: input.scope, period: input.period, isSimulated: true, deterministicAssessments: subjects.map((member) => ({ astronautId: member.id, callsign: member.callsign, assessment: member.latestAssessment })), criticalAlerts });
   } catch (error) {
-    if (error instanceof AIServiceError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    if (error instanceof AIServiceError) return NextResponse.json({ error: error.status === 429 ? "CrewCare AI is busy right now." : "CrewCare AI couldn’t complete that answer. Your question is safe to retry.", code: error.code, ...(error.status === 429 ? { retryAfterSeconds: 15 } : {}) }, { status: error.status });
     console.error("POST /api/ai/assistant error:", error);
-    return NextResponse.json({ error: "AI analysis failed. No answer was generated.", code: "AI_ANALYSIS_FAILED" }, { status: 502 });
+    return NextResponse.json({ error: "CrewCare AI couldn’t complete that answer. Your question is safe to retry.", code: "AI_ANALYSIS_FAILED" }, { status: 502 });
   } finally {
     inFlight.delete(dedupeKey);
   }

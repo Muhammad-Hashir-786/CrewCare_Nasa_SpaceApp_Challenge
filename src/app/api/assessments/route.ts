@@ -8,6 +8,7 @@ import { validateMeasurements } from "@/lib/health/health-validator";
 import { prisma, isDatabaseConfigured } from "@/lib/db";
 import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import type { RawMeasurements } from "@/lib/health/assessment-types";
+import { APP_DAY_END, APP_DAY_START, APP_NOW, APP_NOW_ISO } from "@/lib/health/checkin-store";
 
 const submitSchema = z.object({
   userId: z.string().min(1),
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
 
     const raw: RawMeasurements = {
       userId: data.userId,
-      recordedAt: new Date().toISOString(),
+      recordedAt: APP_NOW_ISO,
       source: data.source ?? "MANUAL_ENTRY",
       heartRate: data.heartRate ?? null,
       systolicBP: data.systolicBP ?? null,
@@ -171,9 +172,9 @@ export async function POST(req: NextRequest) {
           },
         });
         // Also save as HealthRecord for backward compatibility
-        const record = await tx.healthRecord.create({
-          data: {
+        const recordData = {
             userId: data.userId,
+            recordedAt: APP_NOW,
             heartRate: data.heartRate ?? null,
             systolicBP: data.systolicBP ?? null,
             diastolicBP: data.diastolicBP ?? null,
@@ -190,8 +191,15 @@ export async function POST(req: NextRequest) {
             symptomSeverity: data.symptomSeverity ?? null,
             notes: data.notes ?? null,
             isMeasured: true,
-          },
+        };
+        const existingDailyRecord = await tx.healthRecord.findFirst({
+          where: { userId: data.userId, recordedAt: { gte: APP_DAY_START, lte: APP_DAY_END } },
+          orderBy: { recordedAt: "desc" },
+          select: { id: true },
         });
+        const record = existingDailyRecord
+          ? await tx.healthRecord.update({ where: { id: existingDailyRecord.id }, data: recordData })
+          : await tx.healthRecord.create({ data: recordData });
 
         const measurementRows = [
           ["heartRate", data.heartRate, "BPM"], ["systolicBP", data.systolicBP, "mmHg"],
@@ -212,9 +220,9 @@ export async function POST(req: NextRequest) {
 
         if (data.mood || data.fatigueLevel || data.sleepDuration != null || data.sleepQuality != null || data.stressLevel != null || data.anxietyLevel != null) {
           const moodScore: Record<string, number> = { VERY_LOW: 1, LOW: 2, NEUTRAL: 3, GOOD: 4, EXCELLENT: 5 };
-          await tx.dailyCheckIn.create({
-            data: {
+          const dailyCheckInData = {
               userId: data.userId,
+              checkInDate: APP_NOW,
               mood: data.mood ?? null,
               fatigue: data.fatigueLevel ?? null,
               sleepDuration: data.sleepDuration ?? null,
@@ -225,8 +233,14 @@ export async function POST(req: NextRequest) {
               symptomSeverity: data.symptomSeverity ?? null,
               notes: data.notes ?? null,
               overallFeeling: data.mood ? moodScore[data.mood] : null,
-            },
+          };
+          const existingDailyCheckIn = await tx.dailyCheckIn.findFirst({
+            where: { userId: data.userId, checkInDate: { gte: APP_DAY_START, lte: APP_DAY_END } },
+            orderBy: { checkInDate: "desc" },
+            select: { id: true },
           });
+          if (existingDailyCheckIn) await tx.dailyCheckIn.update({ where: { id: existingDailyCheckIn.id }, data: dailyCheckInData });
+          else await tx.dailyCheckIn.create({ data: dailyCheckInData });
         }
         await tx.activityLog.create({ data: { userId: data.userId, action: "HEALTH_CHECK_IN_SUBMITTED", details: `Assessment ${ha.id}` } });
 

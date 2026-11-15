@@ -28,9 +28,19 @@
 .sectionHeading h2 { margin: 0; color: var(--dash-white); font-family: "DM Sans",system-ui,sans-serif; font-size: clamp(26px,3vw,32px); font-weight: 800; letter-spacing: -.025em; line-height: 1.16; }
 .sectionDescription { margin: 9px 0 20px; color: var(--dash-soft); font-size: 15px; line-height: 1.5; }
 .dataNote { margin: 0; color: var(--dash-soft); font-size: 13px; line-height: 1.5; }
+.coreGroupHeading,.vitalGroup h3,.spaceChartsHeading { margin: 22px 0 12px; color: var(--dash-white); font-size: 19px; font-weight: 750; }
+.vitalGroup { margin-top: 24px; }
+.vitalGroup h3 { display: flex; align-items: center; gap: 9px; margin-top: 0; }
+.newTag { padding: 3px 7px; border: 1px solid #b8dfd7; border-radius: 999px; color: #08784f; background: #eaf7f4; font-size: 9px; letter-spacing: .08em; }
+.frequency { color: var(--dash-muted); font-size: 11px; font-weight: 500; }
+.lastTested { margin-top: 8px; color: var(--dash-muted); font-size: 11px; }
+.whyLine { display: block; margin-top: 14px; padding-top: 12px; border-top: 1px solid #e4edeb; color: var(--dash-soft); font-size: 13px; line-height: 1.5; }
 
 .vitalsGrid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 15px; }
 .vitalCard { display: flex; min-height: 190px; flex-direction: column; align-items: flex-start; padding: 22px; border: 1px solid #dce6e4; border-radius: 15px; background: linear-gradient(145deg,rgba(255,255,255,0.9),rgba(255,255,255,0.84)); box-shadow: inset 0 1px rgba(255,255,255,.02); }
+.vitalCard summary { display: flex; width: 100%; height: 100%; flex-direction: column; align-items: flex-start; cursor: pointer; list-style: none; }
+.vitalCard summary::-webkit-details-marker { display: none; }
+.vitalCard[open] { border-color: #8ecfc7; }
 .vitalIcon { display: grid; width: 43px; height: 43px; margin-bottom: 15px; place-items: center; border: 1px solid #dce6e4; border-radius: 12px; color: var(--dash-teal); background: rgba(103,222,214,.075); }
 .vitalLabel { color: var(--dash-soft); font-size: 15px; font-weight: 650; }
 .vitalValue { display: flex; align-items: baseline; gap: 7px; margin: 9px 0 11px; color: var(--dash-white); font-family: "DM Sans",system-ui,sans-serif; font-size: clamp(28px,3vw,36px); font-weight: 800; letter-spacing: -.035em; line-height: 1.05; }
@@ -65,6 +75,11 @@
 .chartCard :global(.recharts-cartesian-axis-tick text) { fill: var(--dash-soft); }
 
 .overviewCard { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 25px; row-gap: 14px; padding: 25px 29px; border: 1px solid #dce6e4; border-radius: 16px; background: linear-gradient(145deg,rgba(255,255,255,0.91),rgba(255,255,255,0.87)); }
+.readinessDomains { display: grid; grid-column: 1/-1; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px 24px; }
+.readinessDomains > div { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 5px 10px; color: var(--dash-soft); font-size: 12px; }
+.readinessDomains > div > div { grid-column: 1; height: 8px; overflow: hidden; border-radius: 99px; background: #e4edeb; }
+.readinessDomains i { display: block; height: 100%; border-radius: inherit; background: var(--dash-teal); }
+.readinessDomains strong { grid-column: 2; grid-row: 1/3; color: var(--dash-white); font-size: 16px; }
 .readinessRing { display: grid; width: 132px; height: 132px; place-items: center; border: 10px solid #dce6e4; border-top-color: var(--dash-teal); border-right-color: var(--dash-teal); border-radius: 50%; transform: rotate(25deg); box-shadow: 0 0 28px rgba(103,222,214,.08); }
 .readinessRing > div { display: flex; align-items: baseline; transform: rotate(-25deg); }
 .readinessRing strong { color: var(--dash-white); font-size: 37px; font-weight: 800; }
@@ -115,6 +130,7 @@
   .dataNote { flex-basis: 100%; }
   .chartCard { min-height: 270px; padding: 14px 12px 8px; }
   .overviewCard { column-gap: 17px; padding: 20px; }
+  .readinessDomains { grid-template-columns: 1fr; }
   .readinessRing { width: 104px; height: 104px; border-width: 8px; }
   .readinessRing strong { font-size: 30px; }
   .readinessCopy h3 { font-size: 20px; }
@@ -122,3 +138,5 @@
   .checkinCard > div { flex-basis: calc(100% - 70px); }
   .checkinButton { width: 100%; }
 }
+
+.checkinButton{color:var(--primary-on-teal);background:var(--primary-teal);border-color:var(--primary-teal)}.checkinButton:hover{background:#066a64}

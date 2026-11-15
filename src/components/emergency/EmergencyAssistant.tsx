@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AlertOctagon, ArrowLeft, Check, ChevronRight, Clipboard, Mic, MicOff, Send, Volume2, VolumeX } from "lucide-react";
 import { EMERGENCY_TYPES, getFirstAidSteps, getSpaceRiskNote, SAMPLE_MEDICAL_KIT, type EmergencyType } from "@/lib/emergency/first-aid-guidance";
@@ -11,6 +12,7 @@ import { BodyTrendDashboard } from "@/components/health/BodyTrendDashboard";
 import { useMicrophoneLevel } from "@/hooks/useMicrophoneLevel";
 import { useAstronaut } from "@/lib/astronaut-context";
 import type { AIHealthResponse } from "@/lib/ai/ai-types";
+import { APP_NOW_ISO, formatAppDate, formatAppDateTime, mergeDailyRecords } from "@/lib/health/checkin-store";
 
 type RecognitionEvent = { results: ArrayLike<ArrayLike<{ transcript: string }>> };
 type RecognitionLike = { lang: string; interimResults: boolean; maxAlternatives: number; onresult: ((event: RecognitionEvent) => void) | null; onerror: ((event: { error?: string }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void; abort: () => void };
@@ -54,6 +56,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   const router = useRouter();
   const { addHealthRecord } = useAstronaut();
   const [open, setOpen] = useState(fullPage);
+  const [mounted, setMounted] = useState(false);
   const [selectedType, setSelectedType] = useState<EmergencyType | null>(null);
   const [selectedCrewId, setSelectedCrewId] = useState("");
   const [someoneElse, setSomeoneElse] = useState(false);
@@ -100,9 +103,8 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
       try {
         const local = JSON.parse(window.localStorage.getItem(`crewcare_checkins_${selectedCrewId}`) ?? "[]") as HealthRecord[];
         if (Array.isArray(local)) {
-          const merged = new Map((crewMember.healthRecords ?? []).map((record) => [record.id, record]));
-          local.filter((record) => record?.id && record.userId === selectedCrewId).forEach((record) => merged.set(record.id, record));
-          setStoredCrewRecords((previous) => ({ ...previous, [selectedCrewId]: [...merged.values()].sort((a,b)=>new Date(a.recordedAt).getTime()-new Date(b.recordedAt).getTime()) }));
+          const merged = mergeDailyRecords(crewMember.healthRecords ?? [], local.filter((record) => record?.id && record.userId === selectedCrewId));
+          setStoredCrewRecords((previous) => ({ ...previous, [selectedCrewId]: merged }));
         }
       } catch { /* Retain the shared demo roster if browser data cannot be read. */ }
     }, 0);
@@ -135,7 +137,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   ] : [];
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || !mounted) return;
     startedClock.current = Date.now();
     const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - (startedClock.current ?? Date.now())) / 1000)), 1000);
     return () => window.clearInterval(timer);
@@ -190,7 +192,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     speakWelcome();
   };
   const chooseEmergency = (type: EmergencyType) => {
-    window.speechSynthesis?.cancel(); handsFreeActive.current = false; setSelectedType(type); setStartedAt(new Date()); setDoneSteps([]); setCurrentStep(0); setHandsFree(false); setError("");
+    window.speechSynthesis?.cancel(); handsFreeActive.current = false; setSelectedType(type); setStartedAt(new Date(APP_NOW_ISO)); setDoneSteps([]); setCurrentStep(0); setHandsFree(false); setError("");
     setAllergy(type === "chest-pain" && knownAllergies ? storedAspirinAllergy ? "YES" : "NO" : null); setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false); setTestResults({}); setUpdatedAnalysis(null); setAnalysisUpdated(false);
     setScreen({ responsive: type === "collapsed" ? "NO" : "", breathingNormally: "", severeBleeding: type === "heavy-bleeding" ? "YES" : "" });
     setVoiceState("WAITING");
@@ -208,8 +210,8 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     setScreen((previous) => ({ ...previous, [key]: value })); setError("");
   };
   const toggleDone = (index: number) => {
-    const markingDone = !doneSteps[index];
-    setDoneSteps((previous) => previous.map((done, current) => current === index ? !done : done));
+    const markingDone = !(doneSteps[index] ?? false);
+    setDoneSteps((previous) => steps.map((_, current) => current === index ? !(previous[current] ?? false) : previous[current] ?? false));
     if (markingDone && currentStep === index) {
       const nextUnfinished = steps.findIndex((_, current) => current > index && !doneSteps[current]);
       if (nextUnfinished >= 0) setCurrentStep(nextUnfinished);
@@ -237,7 +239,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
       instance.onend = () => { micLevel.stop(); setVoiceState((current) => current === "LISTENING" ? "WAITING" : current); }; recognition.current = instance; instance.start(); setVoiceState("LISTENING");
     } catch { micLevel.stop(); setVoiceState("CONNECTION_ERROR"); setError("Could not start speech recognition. You can type details instead."); }
   };
-  const addMessage = (role: Message["role"], value: string) => setMessages((previous) => [...previous, { role, text: value, at: new Date().toISOString() }]);
+  const addMessage = (role: Message["role"], value: string) => setMessages((previous) => [...previous, { role, text: value, at: APP_NOW_ISO }]);
   const situationSummary = [
     `What happened: ${emergency?.label ?? "not selected"}`,
     `Started: ${startedAt ? startedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "not started"}`,
@@ -255,7 +257,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); const report = text.trim();
     const activeType = selectedType ?? "other";
-    if (!selectedType) { setSelectedType("other"); setStartedAt(new Date()); setCurrentStep(0); setDoneSteps([]); }
+    if (!selectedType) { setSelectedType("other"); setStartedAt(new Date(APP_NOW_ISO)); setCurrentStep(0); setDoneSteps([]); }
     if (!report) { setError("Tell Nova what happened, or tap one of the situation shortcuts below."); return; }
     stopListening(); window.speechSynthesis?.cancel(); setVoiceState("PROCESSING"); addMessage("crew", report);
     const firstAction = getFirstAidSteps(activeType, breathingAnswer)[0];
@@ -290,7 +292,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
       }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "AI follow-up is unavailable. Your local first-aid steps remain on screen.");
-      const references = Array.isArray(payload.evidenceReferences) && payload.evidenceReferences.length ? `References: ${payload.evidenceReferences.map((item: { label: string; timestamp: string | null }) => `${item.label}${item.timestamp ? ` · ${new Date(item.timestamp).toLocaleDateString()}` : ""}`).join("; ")}.` : "";
+      const references = Array.isArray(payload.evidenceReferences) && payload.evidenceReferences.length ? `References: ${payload.evidenceReferences.map((item: { label: string; timestamp: string | null }) => `${item.label}${item.timestamp ? ` · ${formatAppDate(item.timestamp)}` : ""}`).join("; ")}.` : "";
       const assistantReply = [payload.reply, references, payload.nextQuestion ? `One quick question: ${payload.nextQuestion}` : "", localSafetyLine, "SIMULATED DATA · Follow the displayed first-aid steps and confirm all actions against the current mission kit and approved procedures."].filter(Boolean).join("\n\n");
       addMessage("assistant", assistantReply); speak(assistantReply); setText("");
     } catch (cause) {
@@ -308,7 +310,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     });
     if (!entered.length) { setError("Enter at least one test result before asking Nova to analyze it."); return; }
     setAnalyzingTests(true); setError("");
-    const testContext = entered.map((item) => `${item.label}: ${item.result}${item.time ? ` (recorded ${new Date(item.time).toLocaleString()})` : " (time not entered)"}`).join("; ");
+    const testContext = entered.map((item) => `${item.label}: ${item.result}${item.time ? ` (recorded ${formatAppDateTime(item.time)})` : " (time not entered)"}`).join("; ");
     const query = `Reassess this emergency using the person's stored check-in data and the new test results. Emergency: ${emergency?.label ?? selectedType}. Started: ${startedAt?.toISOString() ?? "not recorded"}. Situation: ${situationSummary}. Patient: ${selectedCrew?.name ?? "no crew member selected"}. Stored allergies: ${knownAllergies?.join(", ") ?? "not recorded"}. Stored conditions: ${knownConditions?.join(", ") ?? "not recorded"}. Configured sample medical kit: ${SAMPLE_MEDICAL_KIT.items.map((item) => `${item.name} — ${item.dose}`).join("; ")}. Recommend only these exact listed items after allergy checks; otherwise say no medicine in the kit for this and use the physical steps. Latest stored check-in: ${latest ? JSON.stringify({ recordedAt: latest.recordedAt, heartRate: latest.heartRate, systolicBP: latest.systolicBP, diastolicBP: latest.diastolicBP, bodyTemp: latest.bodyTemp, bloodGlucose: latest.bloodGlucose, oxygenSat: latest.oxygenSat, sleepDuration: latest.sleepDuration, symptoms: latest.symptoms, notes: latest.notes }) : "No stored check-in"}. New test results: ${testContext}. Give an updated verdict, plain-language meaning, up to five next actions relevant to this emergency, warning signs, and precautions. Do not diagnose, invent measurements, tests, medicines, or doses. Preserve the first-aid steps already shown unless the results require a clear update. End urgent help guidance with contact mission medical support / the flight surgeon.`;
     const demoState = selectedCrew ? [{
       astronautId: selectedCrew.id,
@@ -333,7 +335,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
       if (selectedCrew) {
         const numeric = (id: string) => { const value = testResults[id]?.result.trim(); if (!value) return undefined; const match = value.match(/-?\d+(?:\.\d+)?/); return match ? Number(match[0]) : undefined; };
         const bpMatch = testResults["blood-pressure"]?.result.match(/(\d{2,3})\s*\/\s*(\d{2,3})/);
-        const createdAt = new Date().toISOString();
+        const createdAt = APP_NOW_ISO;
         const newVitals = {
           heartRate: latest?.heartRate ?? null,
           systolicBP: bpMatch ? Number(bpMatch[1]) : latest?.systolicBP ?? null,
@@ -389,8 +391,12 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   };
   const close = useCallback(() => { recognition.current?.abort(); stopMicrophone(); window.speechSynthesis?.cancel(); handsFreeActive.current = false; welcomePending.current = false; setHandsFree(false); setVoiceState("IDLE"); if (fullPage) router.push(exitHref); else setOpen(false); }, [exitHref, fullPage, router, stopMicrophone]);
 
+  useEffect(() => { setMounted(true); }, []);
+
   useEffect(() => {
     if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     dialog?.focus();
@@ -403,14 +409,14 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => { window.removeEventListener("keydown", onKeyDown); previousFocus?.focus(); };
-  }, [open, fullPage, close]);
+    return () => { window.removeEventListener("keydown", onKeyDown); document.body.style.overflow = previousOverflow; previousFocus?.focus(); };
+  }, [open, fullPage, close, mounted]);
   const displayMetrics = latest ? metricDefinitions.flatMap((metric) => { const value = latest[metric.key]; return typeof value === "number" ? [{ ...metric, value }] : []; }) : [];
   const sourceUrl = selectedType === "radiation" ? NASA_RADIATION_URL : selectedType === "decompression-sickness" ? NASA_DCS_URL : selectedType === "vision-change" ? NASA_SANS_URL : selectedType === "toxic-air" || selectedType === "fever-infection" ? NASA_MEDICAL_URL : selectedType === "collapsed" || selectedType === "choking" ? CPR_URL : selectedType === "burn" ? RED_CROSS_BURN : selectedType === "broken-bone" ? FRACTURE_URL : SOURCE_URL;
 
   return <>
     {!fullPage && <button className="emergency-btn" onClick={resetSession} aria-haspopup="dialog" aria-label="CrewCare · Demo"><AlertOctagon size={22} strokeWidth={1.9}/><span>Emergency</span></button>}
-    {open && <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="emergency-title" className="emergency-screen" onPointerDownCapture={retryWelcomeFromGesture} onKeyDownCapture={retryWelcomeFromGesture}>
+    {open && mounted && createPortal(<div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="emergency-title" className="emergency-screen" onPointerDownCapture={retryWelcomeFromGesture} onKeyDownCapture={retryWelcomeFromGesture}>
       <header className="emergency-header"><button onClick={close} className="emergency-back"><ArrowLeft size={18}/> Exit emergency assistant</button><span className="emergency-session-time">SESSION {Math.floor(elapsed / 60).toString().padStart(2, "0")}:{(elapsed % 60).toString().padStart(2, "0")}</span></header>
       <main className="emergency-main emergency-fast-main">
         <section className="nova-emergency-card emergency-card" aria-label="Nova emergency assistant">
@@ -432,7 +438,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
           </form>
           <div className="nova-voice-status" role="status" aria-live="polite">{voiceState === "SPEAKING" ? "Nova is speaking" : voiceState === "LISTENING" ? <><i className="nova-listening-dot"/>Listening… tap to stop</> : micLevel.micOff ? "Mic off — tap to allow. Typed input is available." : voiceState === "PROCESSING" ? "Nova is preparing a response" : "Voice guidance is ready"}</div>
           {error && <p role="alert" className="emergency-error">{error}</p>}
-          {messages.length > 0 && <section className="emergency-transcript" aria-label="Nova conversation">{messages.map((message, index) => <article key={`${message.at}-${index}`} className={`emergency-message emergency-message-${message.role}`}><span>{message.role === "crew" ? "YOU" : "NOVA · SIMULATED GUIDANCE"}</span><p>{message.text}</p><time>{new Date(message.at).toLocaleTimeString()}</time></article>)}</section>}
+          {messages.length > 0 && <section className="emergency-transcript" aria-label="Nova conversation">{messages.map((message, index) => <article key={`${message.at}-${index}`} className={`emergency-message emergency-message-${message.role}`}><span>{message.role === "crew" ? "YOU" : "NOVA · SIMULATED GUIDANCE"}</span><p>{message.text}</p><time>{formatAppDateTime(message.at, { hour: "numeric", minute: "2-digit" })}</time></article>)}</section>}
         </section>
 
         <section className="emergency-options-section" aria-label="Emergency shortcuts"><h2>Or tap the closest situation — shortcuts</h2>
@@ -442,7 +448,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
         <section className="emergency-people-section emergency-card" aria-label="Choose the crew member who needs help"><h2>Who needs help?</h2><p>Select a person if known. First aid starts even when nobody is selected.</p>
           {DEMO_ASTRONAUTS.length ? <div className="emergency-crew-grid">{DEMO_ASTRONAUTS.map((member) => <button key={member.id} type="button" className={`emergency-crew-card ${selectedCrewId === member.id ? "selected" : ""}`} aria-pressed={selectedCrewId === member.id} onClick={() => selectCrew(member.id)}><span className="emergency-crew-initials">{member.name.split(/\s+/).map((part) => part[0]).slice(0,2).join("")}</span><span><strong>{member.name}</strong><small>{[member.rank, member.specialty].filter(Boolean).join(" · ")}</small></span></button>)}</div> : <p className="emergency-no-crew">No crew loaded</p>}
           <button type="button" className={`emergency-crew-card emergency-unlisted-card ${someoneElse ? "selected" : ""}`} aria-pressed={someoneElse} onClick={() => selectCrew("")}><span className="emergency-crew-initials">?</span><span><strong>Someone not on the crew list</strong><small>No crew record will be attached</small></span></button>
-          {selectedCrew && <div className="emergency-person-context"><strong>Profile context · {selectedCrew.name}</strong><p>Allergies: {knownAllergies?.length ? knownAllergies.join(", ") : "Not recorded in the available crew profile."}</p><p>Conditions: {knownConditions?.length ? knownConditions.join(", ") : "Not recorded in the available crew profile."}</p><p>Health record: {displayMetrics.length ? displayMetrics.map((metric) => `${metric.label} ${metric.value} ${metric.unit}`).join(" · ") : "No stored measurements available."} · {latest ? new Date(latest.recordedAt).toLocaleString() : "No check-in recorded"}</p>{selectedAlerts.length > 0 && <p>Stored alerts: {selectedAlerts.map((alert) => alert.title).join("; ")}</p>}<p>SIMULATED CREW DATA · Confirm allergies and conditions directly; if uncertain, do not use medicine.</p></div>}
+          {selectedCrew && <div className="emergency-person-context"><strong>Profile context · {selectedCrew.name}</strong><p>Allergies: {knownAllergies?.length ? knownAllergies.join(", ") : "Not recorded in the available crew profile."}</p><p>Conditions: {knownConditions?.length ? knownConditions.join(", ") : "Not recorded in the available crew profile."}</p><p>Health record: {displayMetrics.length ? displayMetrics.map((metric) => `${metric.label} ${metric.value} ${metric.unit}`).join(" · ") : "No stored measurements available."} · {latest ? formatAppDateTime(latest.recordedAt) : "No check-in recorded"}</p>{selectedAlerts.length > 0 && <p>Stored alerts: {selectedAlerts.map((alert) => alert.title).join("; ")}</p>}<p>SIMULATED CREW DATA · Confirm allergies and conditions directly; if uncertain, do not use medicine.</p></div>}
         </section>
 
         {selectedType && <>
@@ -473,6 +479,6 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
         <section className="emergency-help-actions emergency-card"><div><strong>Use another channel in parallel</strong><p>Ask a crewmate to contact mission control while first aid continues. No alert is transmitted by this app.</p></div><button className="emergency-screen-submit emergency-support-button" type="button" onClick={requestMedicalSupport}>{requestStatus === "LOCAL_REQUEST_RECORDED" ? "Request recorded on this screen" : "Record a local support request"}</button></section>
         <p className="emergency-human-status"><strong>Human support:</strong> Not connected. Use your approved mission communication channel when it is available.</p>
       </main>
-    </div>}
+    </div>, document.body)}
   </>;
 }

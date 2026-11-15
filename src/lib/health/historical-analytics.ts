@@ -1,4 +1,5 @@
 import type { HealthRecord, AssessmentStatus } from "@/types";
+import { APP_NOW, formatAppDate } from "@/lib/health/checkin-store";
 
 export const MIN_BASELINE_POINTS = 5;
 export const MIN_FORECAST_POINTS = 7;
@@ -437,7 +438,7 @@ function buildObservations(
   if (directional.length) observations.push({
     category: "PROJECTION_WITH_UNCERTAINTY", priority: "LOW",
     indicators: directional.map((forecast) => forecast.indicator),
-    evidence: directional.map((forecast) => `${forecast.label}: ${forecast.projectedValue} ${forecast.unit} around ${new Date(forecast.projectedDate).toLocaleDateString()} (interval ${forecast.lowerBound}–${forecast.upperBound}, ${Math.round(forecast.confidence * 100)}% reliability).`),
+    evidence: directional.map((forecast) => `${forecast.label}: ${forecast.projectedValue} ${forecast.unit} around ${formatAppDate(forecast.projectedDate)} (interval ${forecast.lowerBound}–${forecast.upperBound}, ${Math.round(forecast.confidence * 100)}% reliability).`),
     explanation: "Short-term projections extend observed statistical patterns and are uncertain; they do not assert future health outcomes.",
     reliability: round(average(directional.map((forecast) => forecast.confidence))),
     suggestedFollowUp: "Use projections only as a prompt to review the underlying observations and context.",
@@ -451,7 +452,7 @@ export function generateHealthIntelligence(
   options: { now?: Date; phase3Status?: AssessmentStatus | null } = {},
 ): HealthIntelligenceReport {
   const records = [...inputRecords].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
-  const now = options.now?.getTime() ?? Date.now();
+  const now = options.now?.getTime() ?? APP_NOW.getTime();
   const baselines = buildBaselines(records);
   const trends = buildTrends(records, now);
   const anomalies = detectAnomalies(records, now);

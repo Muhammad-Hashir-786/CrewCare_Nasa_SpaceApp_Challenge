@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, Bell, Users } from "lucide-react";
 import { DEMO_ALERTS, DEMO_ASTRONAUTS } from "@/lib/demo-data";
+import { formatAppDateTime } from "@/lib/health/checkin-store";
+import { MISSION_RADIATION } from "@/lib/space-vitals";
 import type { Alert, Astronaut, HealthRecord } from "@/types";
 import styles from "./mission-control.module.css";
 
 type AlertWithCrew = Alert & { astronaut: Astronaut };
 const priority: Record<Alert["severity"], number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
-const dateTime = (value: Date | string) => new Date(value).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const dateTime = (value: Date | string) => formatAppDateTime(value, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 function statusText(status?: string) { return status === "RED" ? "Act now" : status === "AMBER" ? "Needs attention" : "All clear"; }
 function statusClass(status?: string) { return status === "RED" ? styles.statusRed : status === "AMBER" ? styles.statusAmber : styles.statusGreen; }
@@ -42,6 +44,12 @@ export default function MissionControlDashboard() {
         { label: "Needs attention", value: needsReview.length },
         { label: "Active alerts", value: alerts.length },
       ].map((item) => <article className={styles.summaryCard} key={item.label}><span>{item.label}</span><strong>{item.value}</strong></article>)}
+    </section>
+
+    <section className={styles.radiationSummary} aria-label="Mission radiation readings">
+      <div><span>Radiation dose rate</span><strong>{MISSION_RADIATION.rate}</strong><small>Within baseline</small></div>
+      <div><span>Cumulative radiation</span><strong>{MISSION_RADIATION.cumulative}</strong><small>{MISSION_RADIATION.budget}</small></div>
+      <p>Mission-level simulated readings · same values shown in the astronaut portal.</p>
     </section>
 
     {needsReview.map((member) => <section className={styles.attentionBanner} key={member.id}><AlertTriangle size={20}/><p><strong>{member.name} needs a review</strong><span>{member.latestAssessment?.summary ?? "Review the latest recorded health information."}</span></p><Link href={`/mission-control/crew/${member.id}`}>View profile <ArrowRight size={16}/></Link></section>)}

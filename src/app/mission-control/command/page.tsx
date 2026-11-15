@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeftRight, Check, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import styles from "./command.module.css";
+import { APP_NOW, APP_NOW_ISO, formatAppDateTime } from "@/lib/health/checkin-store";
 
 const OFFICER_SESSION_KEY = "crewcare_mission_officer_session";
 const DUTY_OFFICER_KEY = "crewcare_mission_officer_duty_v2";
@@ -29,7 +30,7 @@ export default function MissionCommandPage() {
     const timer = window.setTimeout(() => {
       const id = localStorage.getItem(DUTY_OFFICER_KEY) ?? sessionStorage.getItem(OFFICER_SESSION_KEY) ?? DEMO_ASTRONAUTS[0].id;
       setCurrentId(id);
-      const since = localStorage.getItem("crewcare_mission_officer_since") ?? String(Date.now());
+      const since = localStorage.getItem("crewcare_mission_officer_since") ?? String(APP_NOW.getTime());
       localStorage.setItem("crewcare_mission_officer_since", since); setOnDutySince(since);
       try { const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]"); setHistory(Array.isArray(saved) ? saved : []); } catch { setHistory([]); }
     }, 0);
@@ -40,7 +41,7 @@ export default function MissionCommandPage() {
     event.preventDefault();
     if (!selected) return;
     if (password !== passwords[selected.callsign]) { setError("Wrong password — enter the selected crew member’s demo password."); return; }
-    const at = new Date().toISOString();
+    const at = APP_NOW_ISO;
     const entry = { from: current.name, to: selected.name, at };
     const nextHistory = [entry, ...history].slice(0, 50);
     localStorage.setItem(HISTORY_KEY, JSON.stringify(nextHistory));
@@ -57,7 +58,7 @@ export default function MissionCommandPage() {
   return <main className={styles.page}>
     <header className={styles.header}><div><p className={styles.kicker}>MISSION CONTROL · COMMAND</p><h1>Command handover</h1><p>Transfer the on-duty role only after the incoming officer confirms their demo password.</p></div><span className={styles.demo}><i/> CrewCare · Demo</span></header>
     <section className={styles.current}>
-      <span className={styles.currentIcon}><ShieldCheck size={23}/></span><div><span className={styles.label}>CURRENT OFFICER ON DUTY</span><h2>{current.name}</h2><p>{current.callsign} · {[current.rank, current.specialty].filter(Boolean).join(" · ")}</p><small>On duty since {onDutySince ? new Date(Number(onDutySince)).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "Loading"}</small></div>
+      <span className={styles.currentIcon}><ShieldCheck size={23}/></span><div><span className={styles.label}>CURRENT OFFICER ON DUTY</span><h2>{current.name}</h2><p>{current.callsign} · {[current.rank, current.specialty].filter(Boolean).join(" · ")}</p><small>On duty since {onDutySince ? formatAppDateTime(Number(onDutySince), { dateStyle: "medium", timeStyle: "short" }) : "Loading"}</small></div>
     </section>
     <section className={styles.section}>
       <div className={styles.sectionHeading}><h2>Pass command</h2><p>Choose one of the other crew members. Your command stays active until they confirm.</p></div>
@@ -69,7 +70,7 @@ export default function MissionCommandPage() {
         <div className={styles.passwordArea}><label htmlFor="handover-password">{selected.callsign} password</label><span className={styles.password}><input id="handover-password" value={password} onChange={(event) => { setPassword(event.target.value); setError(""); }} type={visible ? "text" : "password"} autoComplete="off"/><button type="button" onClick={() => setVisible((value) => !value)} aria-label={visible ? "Hide password" : "Show password"}>{visible ? <EyeOff size={18}/> : <Eye size={18}/>}</button></span>{error && <p role="alert" className={styles.error}>{error}</p>}<button type="submit" className={styles.passButton}><ArrowLeftRight size={17}/> Confirm and pass command</button></div>
       </form>}
     </section>
-    <section className={styles.section}><div className={styles.sectionHeading}><h2>Command history</h2><p>Recent confirmed handovers on this browser.</p></div>{history.length ? <div className={styles.history}>{history.map((item, index) => <article key={`${item.at}-${index}`}><span className={styles.historyIcon}><ArrowLeftRight size={16}/></span><p>Command passed from <strong>{item.from}</strong> to <strong>{item.to}</strong><time>{new Date(item.at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</time></p></article>)}</div> : <p className={styles.empty}>No command handovers have been recorded.</p>}</section>
+    <section className={styles.section}><div className={styles.sectionHeading}><h2>Command history</h2><p>Recent confirmed handovers on this browser.</p></div>{history.length ? <div className={styles.history}>{history.map((item, index) => <article key={`${item.at}-${index}`}><span className={styles.historyIcon}><ArrowLeftRight size={16}/></span><p>Command passed from <strong>{item.from}</strong> to <strong>{item.to}</strong><time>{formatAppDateTime(item.at, { dateStyle: "medium", timeStyle: "short" })}</time></p></article>)}</div> : <p className={styles.empty}>No command handovers have been recorded.</p>}</section>
     <p className={styles.notice}>This is not real authentication — demo mode. All crew names and records are simulated.</p>
   </main>;
 }
