@@ -171,6 +171,19 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   }, [open]);
   useEffect(() => () => { recognition.current?.abort(); micLevel.stop(); nova.cancel(); }, [micLevel.stop, nova]);
 
+  // Scroll to steps panel and speak step 0 whenever a new emergency type is chosen.
+  // Using useEffect ensures the DOM has rendered before we scroll.
+  const lastScrolledTypeRef = useRef<EmergencyType | null>(null);
+  useEffect(() => {
+    if (!selectedType || selectedType === lastScrolledTypeRef.current) return;
+    lastScrolledTypeRef.current = selectedType;
+    // Small timeout lets React flush the new panel into the DOM first.
+    window.setTimeout(() => {
+      stepsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedType]);
+
   // Auto-speak whenever the current step index changes.
   // stepSpokenForRef prevents double-speaking on initial mount (step 0).
   const stepSpokenForRef = useRef<number>(-1);
@@ -179,7 +192,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     if (currentStep === stepSpokenForRef.current) return;
     stepSpokenForRef.current = currentStep;
     if (steps[currentStep]) {
-      speak(`Step ${currentStep + 1}. ${steps[currentStep].title}. ${steps[currentStep].instruction}`);
+      nova.speak(`Step ${currentStep + 1}. ${steps[currentStep].title}. ${steps[currentStep].instruction}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep, selectedType]);
@@ -218,9 +231,9 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     setAllergy(type === "chest-pain" && knownAllergies ? storedAspirinAllergy ? "YES" : "NO" : null); setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false); setTestResults({}); setUpdatedAnalysis(null); setAnalysisUpdated(false);
     setScreen({ responsive: type === "collapsed" ? "NO" : "", breathingNormally: "", severeBleeding: type === "heavy-bleeding" ? "YES" : "" });
     setVoiceState("WAITING");
-    const first = getFirstAidSteps(type, null)[0];
-    if (first) speak(`First step. ${first.title}. ${first.instruction}`);
-    window.setTimeout(() => stepsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    // Reset so the auto-speak effect fires for step 0.
+    stepSpokenForRef.current = -1;
+    lastScrolledTypeRef.current = null;
   };
   const selectCrew = (id: string) => {
     setSelectedCrewId(id); setSomeoneElse(!id); setError("");
@@ -323,9 +336,9 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     const firstAction = getFirstAidSteps(activeType, effectiveBreathing)[0];
     setText("");
     setVoiceState("PROCESSING");
-    if (firstAction) speak(`First step. ${firstAction.title}. ${firstAction.instruction}`);
-    // Scroll after React has rendered the new selectedType panel.
-    window.setTimeout(() => stepsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    if (procedureChanged) { stepSpokenForRef.current = -1; lastScrolledTypeRef.current = null; }
+    if (firstAction && procedureChanged) speak(`First step. ${firstAction.title}. ${firstAction.instruction}`);
+    // Scroll is handled by the selectedType useEffect above.
     const demoState = selectedCrew ? {
       astronautId: selectedCrew.id,
       records: history.slice(-180).map((record) => ({
