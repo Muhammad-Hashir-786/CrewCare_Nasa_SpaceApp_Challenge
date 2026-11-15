@@ -7,7 +7,7 @@ import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import { EmergencyAssistant, type EmergencyContext } from "@/components/emergency/EmergencyAssistant";
 import type { HealthRecord } from "@/types";
 import { useMicrophoneLevel } from "@/hooks/useMicrophoneLevel";
-import { CrewCareWelcome } from "@/components/ai/CrewCareWelcome";
+
 import { CLARIFY_HEALTH_QUESTION, isTriageHealthQuestion, vagueHealthClarification } from "@/lib/ai/chat-behavior";
 import { useRetryCountdown } from "@/hooks/useRetryCountdown";
 import { formatAppDate, mergeAlertState, mergeDailyRecords } from "@/lib/health/checkin-store";
@@ -182,7 +182,6 @@ export function AIHomeExperience() {
   };
 
   return <main className="app-shell landing-shell">
-    <CrewCareWelcome/>
     <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
     <div className="landing-content">
       <div className="landing-badge"><span className="live-dot"/><span>NASA SPACE APPS CHALLENGE 2026</span><span className="mission-pill-sep"/><span>DEMO BUILD</span></div>

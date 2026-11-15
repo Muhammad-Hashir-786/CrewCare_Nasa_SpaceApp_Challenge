@@ -1,5 +1,5 @@
-import { AIHomeExperience } from "@/components/ai/AIHomeExperience";
+import { CrewCareWelcome } from "@/components/ai/CrewCareWelcome";
 
-export default function Home() {
-  return <AIHomeExperience/>;
+export default function IntroPage() {
+  return <CrewCareWelcome />;
 }
