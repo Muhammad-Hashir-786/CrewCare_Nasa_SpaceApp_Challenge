@@ -7,36 +7,10 @@ import type { Astronaut } from "@/types";
 
 async function loadCrew(): Promise<{ crew: Astronaut[]; missionId: string | null; simulated: boolean }> {
   if (!isDatabaseConfigured()) return { crew: DEMO_ASTRONAUTS, missionId: null, simulated: true };
-  const [users, mission] = await Promise.all([
-    prisma.user.findMany({
-      where: { role: "ASTRONAUT" }, orderBy: { callsign: "asc" },
-      include: {
-        healthRecords: { orderBy: { recordedAt: "desc" }, take: 365 },
-        healthAssessments: { orderBy: { assessedAt: "desc" }, take: 1 },
-      },
-    }),
-    prisma.mission.findFirst({ where: { code: DEMO_MISSION.code }, select: { id: true } }),
-  ]);
-  const crew = users.map((user): Astronaut => ({
-    id: user.id, name: user.name, callsign: user.callsign, rank: user.rank, specialty: user.specialty,
-    healthRecords: user.healthRecords.reverse().map((record) => ({
-      id: record.id, userId: record.userId, recordedAt: record.recordedAt.toISOString(),
-      heartRate: record.heartRate, systolicBP: record.systolicBP, diastolicBP: record.diastolicBP,
-      bodyTemp: record.bodyTemp, bloodGlucose: record.bloodGlucose, oxygenSat: record.oxygenSat,
-      sleepDuration: record.sleepDuration, sleepQuality: record.sleepQuality, mood: record.mood,
-      fatigue: record.fatigue, stressLevel: record.stressLevel, anxietyLevel: record.anxietyLevel,
-      symptoms: record.symptoms, symptomSeverity: record.symptomSeverity, notes: record.notes,
-      isMeasured: record.isMeasured, isSimulated: record.isSimulated,
-    })),
-    latestAssessment: user.healthAssessments[0] ? {
-      id: user.healthAssessments[0].id, userId: user.id,
-      status: user.healthAssessments[0].overallStatus as "GREEN" | "AMBER" | "RED",
-      summary: user.healthAssessments[0].summary, flags: user.healthAssessments[0].flags,
-      createdAt: user.healthAssessments[0].assessedAt.toISOString(),
-    } : null,
-    isSimulated: user.healthRecords.length > 0 && user.healthRecords.every((record) => record.isSimulated),
-  }));
-  return { crew, missionId: mission?.id ?? null, simulated: crew.length > 0 && crew.every((member) => member.isSimulated) };
+  // Mission Control's demo dashboard is backed by this fixture. Analytics must
+  // read that same source, even when a connected database has not been seeded.
+  const mission = await prisma.mission.findFirst({ where: { code: DEMO_MISSION.code }, select: { id: true } });
+  return { crew: DEMO_ASTRONAUTS, missionId: mission?.id ?? null, simulated: true };
 }
 
 function buildMissionReport(crew: Astronaut[]) {

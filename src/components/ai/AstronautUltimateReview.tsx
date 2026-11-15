@@ -22,7 +22,7 @@ type Review = {
   missingInformation?: string[];
   limitations?: string[];
 };
-type ChatMessage = { role: "user" | "assistant"; text: string };
+type ChatMessage = { role: "user" | "assistant"; text: string; answer?: Review; dataUsed?: string };
 
 const periodDays: Record<Exclude<Period, "mission">, number> = { "24h": 1, "7d": 7, "30d": 30, "90d": 90 };
 const prompts = ["How am I doing today?", "What changed this week?", "Explain my latest assessment", "How is my sleep compared with baseline?"];
@@ -40,6 +40,8 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
   const [showEvidence, setShowEvidence] = useState(false);
+  const [chatOwner, setChatOwner] = useState(astronaut.id);
+  const activeMessages = chatOwner === astronaut.id ? messages : [];
 
   const records = useMemo(() => [...(astronaut.healthRecords ?? [])].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime()), [astronaut.healthRecords]);
   const referenceTime = records.at(-1) ? new Date(records.at(-1)!.recordedAt).getTime() : 0;
@@ -80,20 +82,26 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
     return () => { active = false; };
   }, [astronaut, period, records, promptContext]);
 
-  const ask = async (prompt = question) => {
-    const text = prompt.trim();
+  const ask = async (prompt = question, contextualPrompt?: string) => {
+    const displayText = prompt.trim();
+    const text = (contextualPrompt ?? prompt).trim();
     if (text.length < 4 || chatLoading) return;
-    setChatLoading(true); setChatError(""); setMessages((items) => [...items, { role: "user", text }]); setQuestion("");
+    setChatLoading(true); setChatError("");
+    if (chatOwner !== astronaut.id) { setChatOwner(astronaut.id); setMessages([{ role: "user", text: displayText }]); }
+    else setMessages((items) => [...items, { role: "user", text: displayText }]);
+    setQuestion("");
     try {
-      const response = await fetch("/api/ai/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: "astronaut", astronautId: astronaut.id, question: `${text.slice(0, 180)}. Use only supplied data, do not invent details or mention IDs. ${promptContext}`.slice(0, 600), period, demoStates: [{ astronautId: astronaut.id, records: records.map((r) => ({ ...r, recordedAt: new Date(r.recordedAt).toISOString() })), latestAssessment: astronaut.latestAssessment ? { ...astronaut.latestAssessment, createdAt: new Date(astronaut.latestAssessment.createdAt).toISOString() } : null, activeAlerts: (astronaut.activeAlerts ?? []).filter((a) => a.status === "ACTIVE").map((a) => ({ ...a, createdAt: new Date(a.createdAt).toISOString(), acknowledgedAt: a.acknowledgedAt ? new Date(a.acknowledgedAt).toISOString() : null, acknowledgedBy: a.acknowledgedBy ?? null, metric: a.metric ?? null, value: a.value ?? null, threshold: a.threshold ?? null })) }] }) });
+      const history = activeMessages.map((message) => ({ role: message.role, text: message.role === "assistant" && message.answer ? `Verdict: ${statusText(message.answer.verdict)}. What this could mean: ${readout(message.answer.whatThisCouldMean)}. What to do right now: ${(message.answer.whatToDoNow ?? []).map((step, i) => `${i + 1}. ${readout(step)}`).join(" ")}. Watch out for: ${(message.answer.watchOutFor ?? []).map(readout).join(" ")}. When to get help immediately: ${readout(message.answer.whenToGetHelpImmediately)}.`.slice(0, 4000) : message.text })).slice(-100);
+      const response = await fetch("/api/ai/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: "astronaut", astronautId: astronaut.id, question: `${text.slice(0, 500)}. Use only supplied data, do not invent details or mention IDs. ${promptContext}`.slice(0, 1000), period, conversationHistory: history, demoStates: [{ astronautId: astronaut.id, records: records.map((r) => ({ ...r, recordedAt: new Date(r.recordedAt).toISOString() })), latestAssessment: astronaut.latestAssessment ? { ...astronaut.latestAssessment, createdAt: new Date(astronaut.latestAssessment.createdAt).toISOString() } : null, activeAlerts: (astronaut.activeAlerts ?? []).filter((a) => a.status === "ACTIVE").map((a) => ({ ...a, createdAt: new Date(a.createdAt).toISOString(), acknowledgedAt: a.acknowledgedAt ? new Date(a.acknowledgedAt).toISOString() : null, acknowledgedBy: a.acknowledgedBy ?? null, metric: a.metric ?? null, value: a.value ?? null, threshold: a.threshold ?? null })) }] }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "The assistant could not answer right now.");
       const a = data.analysis as Review;
-      const answer = [readout(a.summary), readout(a.whatThisCouldMean), ...(a.whatToDoNow ?? []).map((line, i) => `${i + 1}. ${readout(line)}`), ...(a.recommendations ?? []).map((item) => `${readout(item.title)}: ${readout(item.description)} ${readout(item.nextStep)}`)].filter(Boolean).join("\n\n");
-      setMessages((items) => [...items, { role: "assistant", text: answer || "No answer text was returned." }]);
+      const source = latest ? `Using ${astronaut.name}'s latest check-in (${dateLabel(latest.recordedAt)})${latest.heartRate != null ? `: heart rate ${latest.heartRate} bpm` : ""}${latest.systolicBP != null && latest.diastolicBP != null ? `, blood pressure ${latest.systolicBP}/${latest.diastolicBP}` : ""}${latest.oxygenSat != null ? `, oxygen ${latest.oxygenSat}%` : ""}.` : `No stored check-in is available for ${astronaut.name}.`;
+      setMessages((items) => [...(chatOwner === astronaut.id ? items : [{ role: "user" as const, text: displayText }]), { role: "assistant", text: readout(a.summary) || "No answer text was returned.", answer: a, dataUsed: source }]);
     } catch (error) { setChatError(error instanceof Error ? error.message : "The assistant could not answer right now."); }
     finally { setChatLoading(false); }
   };
+  const clearConversation = () => { setMessages([]); setChatError(""); setQuestion(""); };
 
   const attention = latest ? getAttention(latest, assessment) : [];
   const baselineKeys = ["heartRate", "sleepDuration", "stressLevel", "mood"];
@@ -164,12 +172,22 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
       <SectionTitle title="Ask a follow-up" subtitle="Questions use the same CrewCare AI assistant and this astronaut’s available records." />
       <div className={`${styles.card} ${styles.chat}`}>
         <div className={styles.chips}>{prompts.map((prompt) => <button key={prompt} type="button" onClick={() => void ask(prompt)} disabled={chatLoading}>{prompt}</button>)}</div>
-        {messages.map((message, index) => <div className={message.role === "user" ? styles.userBubble : styles.answerBubble} key={`${message.role}-${index}`}><span>{message.role === "user" ? "You" : "CrewCare AI"}</span><p>{message.text}</p></div>)}
+        {activeMessages.map((message, index) => <div className={message.role === "user" ? styles.userBubble : styles.answerBubble} key={`${message.role}-${index}`}><span>{message.role === "user" ? "You" : "CrewCare AI"}</span>{message.role === "user" ? <p>{message.text}</p> : message.answer ? <div>
+          <span className={`${styles.verdict} ${styles[(message.answer.verdict ?? "ALL_CLEAR").toLowerCase()]}`}><span className={styles.dot}/>{statusText(message.answer.verdict)}</span>
+          <p className={styles.meta}>{message.dataUsed}</p>
+          <section className={styles.chatAnswerSection}><h3>What this could mean</h3><p>{readout(message.answer.whatThisCouldMean ?? message.answer.summary)}</p></section>
+          <section className={styles.chatAnswerSection}><h3>What to do right now</h3><ol>{(message.answer.whatToDoNow ?? []).slice(0, 5).map((step, i) => <li key={i}>{readout(step)}</li>)}</ol></section>
+          <section className={styles.chatAnswerSection}><h3>Watch out for</h3><ul>{(message.answer.watchOutFor ?? []).map((item, i) => <li key={i}>{readout(item)}</li>)}</ul></section>
+          <section className={styles.chatAnswerSection}><h3>When to get help immediately</h3><p>{readout(message.answer.whenToGetHelpImmediately)}</p></section>
+          <div className={styles.chips}>{["What if it gets worse?", "Explain it simpler", "Show the steps again"].map((chip) => { const topic = activeMessages.filter((entry) => entry.role === "user").at(-1)?.text ?? "the health concern just discussed"; const instruction = chip === "What if it gets worse?" ? `Explain what worsening of this same concern (${topic}) would look like and restate its warning signs.` : chip === "Explain it simpler" ? `Re-explain your immediately previous answer about the same concern (${topic}) in simpler, shorter words.` : `Repeat the same numbered guidance from your immediately previous answer about the concern (${topic}).`; return <button key={chip} type="button" onClick={() => void ask(chip, instruction)} disabled={chatLoading}>{chip}</button>; })}</div>
+        </div> : <p>{message.text}</p>}</div>)}
+        {chatLoading && <p role="status" className={styles.inlineNote}>CrewCare AI is considering your question and the conversation so far…</p>}
+        <div className={styles.chatSessionControls}><button type="button" className={styles.textButton} onClick={clearConversation}>New conversation</button><span>This conversation is kept while you stay on this page.</span></div>
         {chatError && <p role="alert" className={styles.inlineNote}>{chatError}</p>}
         <form className={styles.chatForm} onSubmit={(event) => { event.preventDefault(); void ask(); }}><input value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about your health trends…" maxLength={600}/><button disabled={chatLoading || question.trim().length < 4}>{chatLoading ? "Thinking…" : <><Send size={16}/> Ask CrewCare</>}</button></form>
       </div>
     </section>
-    <p className={styles.safety}>CrewCare is not a doctor — this is guidance until professional help arrives. All health data shown is fictional and simulated for demonstration.</p>
+      <p className={styles.safety}>CrewCare is not a doctor — this is guidance until professional help arrives. All health data shown is fictional and simulated for demonstration.</p>
   </main>;
 }
 

@@ -58,6 +58,14 @@ function Gauge({ label, value, unit, verdict, tone, fill }: { label: string; val
   </article>;
 }
 
+function EmergencyGauge({ label, value, unit, verdict, tone, fill }: { label: string; value: string | null; unit: string; verdict: string; tone: Tone; fill: number | null }) {
+  return <article className={`${styles.gaugeCard} ${styles.emergencyGaugeCard} ${styles[`tone_${tone}`]}`}>
+    <div className={styles.emergencyReadingValue}>{value == null ? <strong aria-label="No reading">—</strong> : <><strong>{value}</strong><span>{unit}</span></>}</div>
+    <div className={styles.emergencyReadingTrack} aria-hidden="true"><span style={{ width: fill == null ? "0%" : `${Math.max(6, Math.min(100, fill * 100))}%` }}/></div>
+    <h3>{label}</h3><p>{verdict}</p>
+  </article>;
+}
+
 function HumanFigure({ tones, highlighted, onSelect, emergency = false }: { tones: Record<BodySystem, Tone>; highlighted?: BodySystem | null; onSelect: (id: BodySystem) => void; emergency?: boolean }) {
   const activate = (id: BodySystem) => (event: React.KeyboardEvent<SVGGElement>) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(id); } };
   const region = (id: BodySystem, shape: React.ReactNode, label: string) => <g key={id} className={`${styles.bodyPart} ${styles[`body_${id}`]} ${styles[`part_${tones[id]}`]} ${highlighted === id ? (emergency ? styles.part_emergency : styles.part_selected) : ""}`} role="button" tabIndex={0} aria-label={`${label}: ${tones[id] === "neutral" ? "No data" : tones[id]}${emergency && highlighted === id ? ", emergency area selected" : ""}`} onClick={() => onSelect(id)} onKeyDown={activate(id)}>{shape}<title>{label}{tones[id] === "neutral" ? " — No data" : ` — ${tones[id]}`}</title></g>;
@@ -164,12 +172,12 @@ export function BodyTrendDashboard({
     setSelectedSystem((current) => current === system ? null : system);
   };
 
-  if (mode === "emergency") return <section className={styles.emergencyPanel} aria-label="Crew health triage map">
+  if (mode === "emergency") return <section className={`${styles.emergencyPanel} ${person ? "" : styles.emergencyPanelNoReadings}`} aria-label="Crew health triage map">
     <div className={styles.emergencyBodyColumn}><div className={styles.panelHeading}><div><span className={styles.eyebrow}>TRIAGE MAP · SIMULATED</span><h2>{person ? `${person.callsign} · Body map` : "Emergency area"}</h2></div>{person && <span className={styles.avatar}>{person.name.split(/\s+/).map((part)=>part[0]).join("").slice(0,2)}</span>}</div>
       <div className={styles.figureWrap}><HumanFigure tones={tones} highlighted={selectedHighlight} onSelect={onBodySelect} emergency/></div>
       {person ? <p className={styles.personLine}>{person.name} · {[person.rank, person.specialty].filter(Boolean).join(" · ")}</p> : <p className={styles.selectHint}>Select a crew member to see their vitals.</p>}
     </div>
-    {person && <div className={styles.emergencyGaugeColumn}><h3>Current readings</h3><div className={styles.gaugeGrid}>{gauges.filter((gauge)=>["heartRate","systolicBP","oxygenSat","bodyTemp","bloodGlucose"].includes(gauge.key)).map((gauge)=><Gauge key={gauge.key} label={gauge.label} value={gauge.shown} unit={gauge.unit} verdict={gauge.status.verdict} tone={gauge.status.tone} fill={gauge.fill}/>)}</div></div>}
+    {person && <div className={styles.emergencyGaugeColumn}><h3>Current readings</h3><div className={styles.emergencyGaugeGrid}>{gauges.filter((gauge)=>["heartRate","systolicBP","oxygenSat","bloodGlucose","bodyTemp"].includes(gauge.key)).map((gauge)=><EmergencyGauge key={gauge.key} label={gauge.label} value={gauge.shown} unit={gauge.unit} verdict={gauge.status.verdict} tone={gauge.status.tone} fill={gauge.fill}/>)}</div></div>}
   </section>;
 
   return <div className={styles.dashboard}>

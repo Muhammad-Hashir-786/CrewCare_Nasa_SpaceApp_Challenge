@@ -10,7 +10,7 @@ export const maxDuration = 40;
 const RequestSchema = z.object({
   scope: z.enum(["general", "astronaut", "mission"]), astronautId: z.string().max(80).optional(),
   question: z.string().trim().min(4).max(600), period: z.enum(["24h", "7d", "30d", "90d", "mission"]).default("30d"),
-  conversationHistory: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string().max(1000) })).max(8).default([]),
+  conversationHistory: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string().max(4000) })).max(100).default([]),
   existingRecommendations: z.array(z.string().max(120)).max(20).default([]),
   demoStates: z.unknown().optional(),
 });
@@ -27,7 +27,7 @@ const HEALTH_REFERENCES = [
 
 export async function POST(request: NextRequest) {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
-  if (contentLength > 512_000) return NextResponse.json({ error: "The assistant context request is too large." }, { status: 413 });
+  if (contentLength > 1_000_000) return NextResponse.json({ error: "The assistant context request is too large." }, { status: 413 });
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local-demo";
   const now = Date.now();
   const bucket = limitByClient.get(ip);

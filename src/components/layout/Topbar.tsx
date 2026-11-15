@@ -45,7 +45,7 @@ export function Topbar({
           {emergencyHref
             ? <Link href={emergencyHref} className="emergency-btn" aria-label="Open emergency assistance"><AlertOctagon size={22} strokeWidth={1.9}/><span>Emergency</span></Link>
             : <EmergencyAssistant context={emergencyContext}/>}
-          {onSignOut && <button type="button" onClick={onSignOut} aria-label="Sign out or change mission officer" style={{ border: "1px solid var(--line)", borderRadius: 7, background: "transparent", color: "#a8c5c1", padding: "8px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Change officer</button>}
+          {onSignOut && <button type="button" onClick={onSignOut} aria-label="Sign out of Mission Control" style={{ border: "1px solid var(--line)", borderRadius: 7, background: "transparent", color: "#a8c5c1", padding: "8px 10px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>Sign out</button>}
           <Link href={profileHref} className="avatar-btn" aria-label="Switch demo astronaut profile">
             <span className="avatar-initials">{astronautInitials}</span>
             <span>

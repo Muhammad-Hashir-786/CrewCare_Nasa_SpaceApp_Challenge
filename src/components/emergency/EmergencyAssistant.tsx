@@ -8,6 +8,7 @@ import type { EmergencyScreen } from "@/lib/emergency/decision-support";
 import type { HealthRecord } from "@/types";
 import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import { BodyTrendDashboard } from "@/components/health/BodyTrendDashboard";
+import { useMicrophoneLevel } from "@/hooks/useMicrophoneLevel";
 
 type RecognitionEvent = { results: ArrayLike<ArrayLike<{ transcript: string }>> };
 type RecognitionLike = { lang: string; interimResults: boolean; maxAlternatives: number; onresult: ((event: RecognitionEvent) => void) | null; onerror: ((event: { error?: string }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void; abort: () => void };
@@ -69,6 +70,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   const [error, setError] = useState("");
   const [requestStatus, setRequestStatus] = useState<"NOT_REQUESTED" | "LOCAL_REQUEST_RECORDED">("NOT_REQUESTED");
   const [novaMuted, setNovaMuted] = useState(false);
+  const micLevel = useMicrophoneLevel();
   const recognition = useRef<RecognitionLike | null>(null);
   const voiceInteraction = useRef(false);
   const handsFreeActive = useRef(false);
@@ -95,6 +97,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     }, 0);
     return () => window.clearTimeout(timer);
   }, [selectedCrewId]);
+  useEffect(() => { if (micLevel.micOff && voiceState === "LISTENING") { recognition.current?.stop(); setVoiceState("WAITING"); } }, [micLevel.micOff, voiceState]);
   const selectedCrewHistory = selectedCrew ? storedCrewRecords[selectedCrew.id] ?? selectedCrew.healthRecords ?? [] : [];
   const history = selectedCrew?.id === context?.astronautId && context?.healthRecords?.length ? context.healthRecords : selectedCrewHistory;
   const latest = history.at(-1);
@@ -114,7 +117,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - (startedClock.current ?? Date.now())) / 1000)), 1000);
     return () => window.clearInterval(timer);
   }, [open]);
-  useEffect(() => () => { recognition.current?.abort(); if (typeof window !== "undefined") window.speechSynthesis?.cancel(); }, []);
+  useEffect(() => () => { recognition.current?.abort(); micLevel.stop(); if (typeof window !== "undefined") window.speechSynthesis?.cancel(); }, [micLevel.stop]);
 
   const speak = (value: string, chain = false) => {
     if (mutedRef.current) return;
@@ -158,7 +161,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   }, [fullPage, speakWelcome]);
   const retryWelcomeFromGesture = () => { if (welcomePending.current && !novaMuted) speakWelcome(); };
   const resetSession = () => {
-    window.speechSynthesis?.cancel(); handsFreeActive.current = false; mutedRef.current = false; welcomePending.current = false; setNovaMuted(false); setOpen(true); setSelectedType(null); setSelectedCrewId(""); setSomeoneElse(false); setStartedAt(null); setScreen(defaultScreen); setDoneSteps([]); setCurrentStep(0); setHandsFree(false);
+    window.speechSynthesis?.cancel(); recognition.current?.abort(); micLevel.stop(); handsFreeActive.current = false; mutedRef.current = false; welcomePending.current = false; setNovaMuted(false); setOpen(true); setSelectedType(null); setSelectedCrewId(""); setSomeoneElse(false); setStartedAt(null); setScreen(defaultScreen); setDoneSteps([]); setCurrentStep(0); setHandsFree(false);
     setAllergy(null); setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false); setError(""); setMessages([]); setText(""); setElapsed(0);
     setRequestStatus("NOT_REQUESTED"); setVoiceState("IDLE"); voiceInteraction.current = false;
     speakWelcome();
@@ -189,19 +192,20 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     if (handsFree) { handsFreeActive.current = false; window.speechSynthesis?.cancel(); setHandsFree(false); setVoiceState("INTERRUPTED"); return; }
     handsFreeActive.current = true; setHandsFree(true); sayCurrentStep(true);
   };
-  const stopListening = () => { recognition.current?.stop(); if (voiceState === "LISTENING") setVoiceState("INTERRUPTED"); };
-  const listen = () => {
+  const stopListening = () => { recognition.current?.stop(); micLevel.stop(); if (voiceState === "LISTENING") setVoiceState("INTERRUPTED"); };
+  const listen = async () => {
     voiceInteraction.current = true; window.speechSynthesis?.cancel(); setVoiceState("PROCESSING");
     const host = window as Window & { SpeechRecognition?: RecognitionConstructor; webkitSpeechRecognition?: RecognitionConstructor };
     const SpeechRecognition = host.SpeechRecognition ?? host.webkitSpeechRecognition;
-    if (!SpeechRecognition) { setVoiceState("CONNECTION_ERROR"); setError("Voice input is not supported here. The first-aid steps remain available on screen."); return; }
+    if (!SpeechRecognition) { micLevel.markOff(); setVoiceState("WAITING"); setError("Voice input is not supported here. The first-aid steps remain available on screen."); return; }
     setError("");
+    if (!await micLevel.start()) { setVoiceState("WAITING"); setError("Mic off — tap to allow microphone access. You can type details instead."); return; }
     try {
       const instance = new SpeechRecognition(); instance.lang = navigator.language || "en-US"; instance.interimResults = false; instance.maxAlternatives = 1;
       instance.onresult = (event) => { setVoiceState("PROCESSING"); const transcript = event.results[0]?.[0]?.transcript?.trim(); if (transcript) { setText(transcript); window.setTimeout(() => novaFormRef.current?.requestSubmit(), 0); } else setVoiceState("WAITING"); };
-      instance.onerror = (event) => { setVoiceState("CONNECTION_ERROR"); setError(event.error === "not-allowed" ? "Microphone permission was denied. The first-aid steps remain on screen." : "Voice input stopped. You can type details instead."); };
-      instance.onend = () => setVoiceState((current) => current === "LISTENING" ? "WAITING" : current); recognition.current = instance; instance.start(); setVoiceState("LISTENING");
-    } catch { setVoiceState("CONNECTION_ERROR"); setError("Could not start speech recognition. You can type details instead."); }
+      instance.onerror = (event) => { micLevel.stop(); if (event.error === "not-allowed") micLevel.markOff(); setVoiceState("WAITING"); setError(event.error === "not-allowed" ? "Mic off — tap to allow microphone access. The first-aid steps and typed input remain available." : "Voice input stopped. You can type details instead."); };
+      instance.onend = () => { micLevel.stop(); setVoiceState((current) => current === "LISTENING" ? "WAITING" : current); }; recognition.current = instance; instance.start(); setVoiceState("LISTENING");
+    } catch { micLevel.stop(); setVoiceState("CONNECTION_ERROR"); setError("Could not start speech recognition. You can type details instead."); }
   };
   const addMessage = (role: Message["role"], value: string) => setMessages((previous) => [...previous, { role, text: value, at: new Date().toISOString() }]);
   const situationSummary = [
@@ -280,7 +284,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     else if (selectedType) sayCurrentStep();
     else speakWelcome();
   };
-  const close = () => { recognition.current?.abort(); window.speechSynthesis?.cancel(); handsFreeActive.current = false; welcomePending.current = false; setHandsFree(false); setVoiceState("IDLE"); if (fullPage) router.push(exitHref); else setOpen(false); };
+  const close = () => { recognition.current?.abort(); micLevel.stop(); window.speechSynthesis?.cancel(); handsFreeActive.current = false; welcomePending.current = false; setHandsFree(false); setVoiceState("IDLE"); if (fullPage) router.push(exitHref); else setOpen(false); };
   const displayMetrics = latest ? metricDefinitions.flatMap((metric) => { const value = latest[metric.key]; return typeof value === "number" ? [{ ...metric, value }] : []; }) : [];
   const sourceUrl = selectedType === "radiation" ? NASA_RADIATION_URL : selectedType === "decompression-sickness" ? NASA_DCS_URL : selectedType === "vision-change" ? NASA_SANS_URL : selectedType === "toxic-air" || selectedType === "fever-infection" ? NASA_MEDICAL_URL : selectedType === "collapsed" || selectedType === "choking" ? CPR_URL : selectedType === "burn" ? RED_CROSS_BURN : selectedType === "broken-bone" ? FRACTURE_URL : SOURCE_URL;
 
@@ -301,9 +305,12 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
           </div>
           <form ref={novaFormRef} onSubmit={submit} className="nova-input-form">
             <textarea ref={novaInputRef} aria-label="Tell Nova what happened" value={text} onChange={(event) => setText(event.target.value)} placeholder="Type what happened…" rows={2} maxLength={1200}/>
-            <div className="nova-input-actions"><button type="button" onClick={voiceState === "LISTENING" ? stopListening : listen} className={`nova-mic-button ${voiceState === "LISTENING" ? "listening" : ""}`} aria-pressed={voiceState === "LISTENING"} aria-label={voiceState === "LISTENING" ? "Stop voice input" : "Speak to Nova"}>{voiceState === "LISTENING" ? <MicOff size={23}/> : <Mic size={23}/>}<span>{voiceState === "LISTENING" ? "Stop" : "Speak"}</span></button><button type="submit" className="nova-send-button" disabled={!text.trim()}><Send size={19}/> Ask Nova</button></div>
+            <div className="nova-input-actions"><div className={`nova-mic-control ${voiceState === "LISTENING" ? "is-listening" : ""}`} style={{ "--mic-level": micLevel.level } as React.CSSProperties}>
+              {voiceState === "LISTENING" && <><span className="nova-mic-ring nova-mic-ring-one" style={{ transform: `scale(${1 + micLevel.level * .5})`, opacity: .08 + micLevel.level * .22 }}/><span className="nova-mic-ring nova-mic-ring-two" style={{ transform: `scale(${1 + micLevel.level * .85})`, opacity: .05 + micLevel.level * .14 }}/><span className="nova-mic-live-wave" aria-label="Live microphone level">{[.45,.8,1,.66,.9,.52,.75].map((factor,index)=><i key={index} style={{ height: `${3 + micLevel.level * 24 * factor}px` }}/>)}</span></>}
+              <button type="button" onClick={voiceState === "LISTENING" ? stopListening : () => void listen()} className={`nova-mic-button ${voiceState === "LISTENING" ? "listening" : ""}`} style={voiceState === "LISTENING" ? { transform: `scale(${1 + micLevel.level * .15})`, boxShadow: `0 0 ${5 + micLevel.level * 20}px rgba(88,215,196,${.15 + micLevel.level * .48})` } : undefined} aria-pressed={voiceState === "LISTENING"} aria-label={voiceState === "LISTENING" ? "Stop voice input" : micLevel.micOff ? "Mic off — tap to allow" : "Speak to Nova"} title={micLevel.micOff ? "Mic off — tap to allow" : undefined}>{voiceState === "LISTENING" ? <MicOff size={23}/> : <Mic size={23}/>}<span>{voiceState === "LISTENING" ? "Stop" : "Speak"}</span></button>
+            </div><button type="submit" className="nova-send-button" disabled={!text.trim()}><Send size={19}/> Ask Nova</button></div>
           </form>
-          <div className="nova-voice-status" role="status" aria-live="polite">{voiceState === "SPEAKING" ? "Nova is speaking" : voiceState === "LISTENING" ? "Listening…" : voiceState === "PROCESSING" ? "Nova is preparing a response" : "Voice guidance is ready"}</div>
+          <div className="nova-voice-status" role="status" aria-live="polite">{voiceState === "SPEAKING" ? "Nova is speaking" : voiceState === "LISTENING" ? <><i className="nova-listening-dot"/>Listening… tap to stop</> : micLevel.micOff ? "Mic off — tap to allow. Typed input is available." : voiceState === "PROCESSING" ? "Nova is preparing a response" : "Voice guidance is ready"}</div>
           {error && <p role="alert" className="emergency-error">{error}</p>}
           {messages.length > 0 && <section className="emergency-transcript" aria-label="Nova conversation">{messages.map((message, index) => <article key={`${message.at}-${index}`} className={`emergency-message emergency-message-${message.role}`}><span>{message.role === "crew" ? "YOU" : "NOVA · SIMULATED GUIDANCE"}</span><p>{message.text}</p><time>{new Date(message.at).toLocaleTimeString()}</time></article>)}</section>}
         </section>

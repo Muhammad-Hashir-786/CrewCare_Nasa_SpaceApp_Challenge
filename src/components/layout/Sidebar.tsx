@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, MessageSquare, Activity, FileText, AlertTriangle, BarChart2, LineChart, Sparkles } from "lucide-react";
+import { LayoutDashboard, MessageSquare, Activity, FileText, AlertTriangle, BarChart2, LineChart, Sparkles, ArrowLeftRight } from "lucide-react";
 
 interface NavItem {
   href: string;
@@ -27,6 +27,7 @@ const ASTRONAUT_NAV: NavItem[] = [
 
 const MC_NAV: NavItem[] = [
   { href: "/mission-control",        label: "Crew",   Icon: LayoutDashboard },
+  { href: "/mission-control/command", label: "Command", Icon: ArrowLeftRight },
   { href: "/mission-control/analytics", label: "Analytics", Icon: LineChart },
   { href: "/mission-control/intelligence", label: "AI Intel", Icon: Sparkles },
   { href: "/mission-control/alerts", label: "Alerts", Icon: AlertTriangle },

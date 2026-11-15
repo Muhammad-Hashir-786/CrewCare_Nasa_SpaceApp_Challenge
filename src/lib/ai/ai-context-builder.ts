@@ -11,7 +11,7 @@ export interface AIContext {
   generatedAt: string;
   question: string;
   healthDataIsSimulated: true;
-  subjects: Array<{ id: string; callsign: string; displayName: string; latestAssessment: unknown; currentMeasurements: unknown; recordsInPeriod: number; baselines: unknown[]; trends: unknown[]; anomalies: unknown[]; patterns: unknown[]; forecasts: unknown[]; recommendations: string[]; activeAlerts: Array<{ id: string; title: string; severity: string; message: string; createdAt: string }> }>;
+  subjects: Array<{ id: string; callsign: string; displayName: string; latestAssessment: unknown; currentMeasurements: unknown; recordsInPeriod: number; baselines: unknown[]; trends: unknown[]; recent14DayTrends: unknown[]; allergies: string[] | null; conditions: string[] | null; anomalies: unknown[]; patterns: unknown[]; forecasts: unknown[]; recommendations: string[]; activeAlerts: Array<{ id: string; title: string; severity: string; message: string; createdAt: string }> }>;
   evidence: EvidenceItem[];
   missingInformation: string[];
   mission: { name: string; code: string };
@@ -47,6 +47,14 @@ function buildSubject(astronaut: Astronaut, period: AIAnalysisPeriod, evidence: 
   const records = allRecords.filter((record) => cutoff == null || new Date(record.recordedAt).getTime() >= cutoff);
   const intelligence = generateHealthIntelligence(allRecords, { phase3Status: astronaut.latestAssessment?.status });
   const latestRecord = allRecords.at(-1);
+  const referenceTime = latestRecord ? new Date(latestRecord.recordedAt).getTime() : 0;
+  const recent14Records = allRecords.filter((record) => referenceTime > 0 && new Date(record.recordedAt).getTime() >= referenceTime - 14 * 86_400_000);
+  const recent14Intelligence = generateHealthIntelligence(recent14Records, { phase3Status: astronaut.latestAssessment?.status });
+  const recent14DayTrends = recent14Intelligence.trends.filter((item) => item.period === "mission").map((trend) => {
+    const baseline = intelligence.baselines.find((item) => item.indicator === trend.indicator);
+    return { indicator: trend.indicator, label: trend.label, unit: trend.unit, count: trend.measurementCount, firstValue: trend.startingValue, latestValue: trend.latestValue, direction: trend.direction, baselineMinimum: baseline?.minimum ?? null, baselineMaximum: baseline?.maximum ?? null };
+  });
+  const profile = astronaut as Astronaut & { allergies?: string[] | null; conditions?: string[] | null };
   const subjectEvidence: EvidenceItem[] = [];
   for (const record of records.slice(-30)) subjectEvidence.push({ id: record.id, kind: "record", label: `Health check-in · ${astronaut.callsign}`, timestamp: new Date(record.recordedAt).toISOString(), detail: JSON.stringify(readable(record)) });
   if (astronaut.latestAssessment) subjectEvidence.push({ id: astronaut.latestAssessment.id, kind: "assessment", label: `Phase 3 assessment · ${astronaut.latestAssessment.status}`, timestamp: new Date(astronaut.latestAssessment.createdAt).toISOString(), detail: `${astronaut.latestAssessment.summary} ${astronaut.latestAssessment.details ?? ""} Guidance: ${astronaut.latestAssessment.guidance ?? "Not provided"}` });
@@ -56,6 +64,7 @@ function buildSubject(astronaut: Astronaut, period: AIAnalysisPeriod, evidence: 
     const id = `trend-${astronaut.id}-${trend.indicator}-${period}`;
     subjectEvidence.push({ id, kind: "trend", label: `${trend.label} · ${period}`, timestamp: intelligence.generatedAt, detail: trend.explanation });
   }
+  for (const trend of recent14DayTrends) subjectEvidence.push({ id: `trend14-${astronaut.id}-${trend.indicator}`, kind: "trend", label: `${trend.label} · last 14 days`, timestamp: latestRecord ? new Date(latestRecord.recordedAt).toISOString() : null, detail: `${trend.count} readings over the 14 days ending ${latestRecord ? new Date(latestRecord.recordedAt).toISOString() : "an unavailable date"}; first ${trend.firstValue ?? "not recorded"} ${trend.unit}, latest ${trend.latestValue ?? "not recorded"} ${trend.unit}, direction ${trend.direction}; full-history personal range ${trend.baselineMinimum ?? "unavailable"}–${trend.baselineMaximum ?? "unavailable"} ${trend.unit}.` });
   for (const baseline of intelligence.baselines) if (baseline.count) subjectEvidence.push({ id: `baseline-${astronaut.id}-${baseline.indicator}`, kind: "baseline", label: `${baseline.label} personal baseline`, timestamp: intelligence.generatedAt, detail: baseline.sufficient ? `${baseline.count} records. Mean ${baseline.mean} ${baseline.unit}; median ${baseline.median}; standard deviation ${baseline.standardDeviation}; range ${baseline.minimum}–${baseline.maximum}; rolling average ${baseline.rollingAverage}.` : `Only ${baseline.count}/${baseline.minimumRequired} observations; insufficient for a reliable baseline.` });
   for (const [index, pattern] of intelligence.patterns.entries()) subjectEvidence.push({ id: `pattern-${astronaut.id}-${index}`, kind: "pattern", label: `Historical pattern · ${pattern.category}`, timestamp: pattern.endDate, detail: `${pattern.explanation} Evidence: ${pattern.evidence.join("; ")}` });
   for (const forecast of intelligence.forecasts) subjectEvidence.push({ id: `forecast-${astronaut.id}-${forecast.indicator}`, kind: "forecast", label: `${forecast.label} statistical projection`, timestamp: forecast.projectedDate, detail: `${forecast.explanation} Projected ${forecast.projectedValue} ${forecast.unit}, interval ${forecast.lowerBound}–${forecast.upperBound}, confidence ${forecast.confidence}; based on ${forecast.sourcePoints} measurements from ${forecast.sourceStart} to ${forecast.sourceEnd}.` });
@@ -74,7 +83,8 @@ function buildSubject(astronaut: Astronaut, period: AIAnalysisPeriod, evidence: 
       id: astronaut.id, callsign: astronaut.callsign, displayName: astronaut.name,
       latestAssessment: astronaut.latestAssessment ? { id: astronaut.latestAssessment.id, status: astronaut.latestAssessment.status, summary: astronaut.latestAssessment.summary, guidance: astronaut.latestAssessment.guidance, timestamp: new Date(astronaut.latestAssessment.createdAt).toISOString() } : null,
       currentMeasurements: latestRecord ? readable(latestRecord) : null, recordsInPeriod: periodRecords.length,
-      baselines: intelligence.baselines, trends: intelligence.trends.filter((item) => item.period === (period === "mission" ? "mission" : period)),
+      baselines: intelligence.baselines, trends: intelligence.trends.filter((item) => item.period === (period === "mission" ? "mission" : period)), recent14DayTrends,
+      allergies: profile.allergies ?? null, conditions: profile.conditions ?? null,
       anomalies: intelligence.anomalies.slice(-12), patterns: intelligence.patterns, forecasts: intelligence.forecasts,
       recommendations: [astronaut.latestAssessment?.guidance, ...alertEvidence.map((alert) => alert.message)].filter((item): item is string => Boolean(item)),
       activeAlerts: alertEvidence.map((alert) => ({ id: alert.id, title: alert.title, severity: alert.severity, message: alert.message, createdAt: new Date(alert.createdAt).toISOString() })),
@@ -91,20 +101,9 @@ export function buildAstronautAIContext(astronautId: string, question: string, p
   return { scope: "astronaut", period, generatedAt: new Date().toISOString(), question, healthDataIsSimulated: true, subjects: [subject], evidence, missingInformation: missing, mission: { name: DEMO_MISSION.name, code: DEMO_MISSION.code } };
 }
 
-/** Minimal context for the home-page assistant: current data only, never mission-wide history. */
+/** Home-page assistant context includes current readings and enough recent/personal history to ground follow-ups. */
 export function buildLatestAstronautAIContext(astronautId: string, question: string, demoState?: DemoState): AIContext | null {
-  const context = buildAstronautAIContext(astronautId, question, "24h", demoState);
-  if (!context) return null;
-  const subject = context.subjects[0];
-  const current = subject.currentMeasurements as { id?: string } | null;
-  const assessment = subject.latestAssessment as { id?: string } | null;
-  const allowed = new Set([current?.id, assessment?.id, ...subject.activeAlerts.map((alert) => alert.id)].filter(Boolean));
-  return {
-    ...context,
-    evidence: context.evidence.filter((item) => allowed.has(item.id)),
-    missingInformation: subject.currentMeasurements ? context.missingInformation : ["No stored health measurements are available for this crew member; use general advice only."],
-    subjects: [{ ...subject, baselines: [], trends: [], anomalies: [], patterns: [], forecasts: [], recommendations: [] }],
-  };
+  return buildAstronautAIContext(astronautId, question, "30d", demoState);
 }
 
 /** Context-free home-page advice. No crew names, records, vitals, or demo state are included. */
