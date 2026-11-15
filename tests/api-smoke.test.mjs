@@ -38,7 +38,7 @@ test("demo health endpoint clearly reports simulated mode", async () => {
   assert.equal(data.simulatedData, true);
 });
 
-test("home route keeps the original portal choices and adds the AI search interface", async () => {
+test("home route presents the doctor agent, AI search, emergency action, and original portals", async () => {
   const response = await fetch(`${origin}/`);
   const html = await response.text();
   assert.equal(response.status, 200);
@@ -47,8 +47,11 @@ test("home route keeps the original portal choices and adds the AI search interf
   assert.match(html, /Astronaut Portal/);
   assert.match(html, /Mission Control/);
   assert.match(html, /landing-brand-name/);
-  assert.match(html, /Supporting crew health awareness during long-duration spaceflight/);
+  assert.match(html, /doctor-agent/);
+  assert.match(html, /Astronaut Health Assessment &amp; Monitoring/);
+  assert.match(html, /General advice — no crew member selected/);
   assert.match(html, /Need help now\?/);
+  assert.match(html, /Open the safety intake and contact mission medical support/);
 });
 
 test("historical analytics endpoint returns four demo crew members", async () => {
@@ -127,7 +130,7 @@ test("unconfigured AI provider reports an explicit setup error instead of mock o
   assert.equal(data.analysis, undefined);
 });
 
-test("emergency API deterministically escalates danger before contacting the AI provider", async () => {
+test("urgent emergency follow-up does not short-circuit to contact-only text", async () => {
   const response = await fetch(`${origin}/api/emergency/assistant`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -136,10 +139,9 @@ test("emergency API deterministically escalates danger before contacting the AI 
     }),
   });
   const data = await response.json();
-  assert.equal(response.status, 200);
-  assert.equal(data.urgency, "IMMEDIATE_HUMAN_SUPPORT");
-  assert.equal(data.modelUsed, false);
-  assert.match(data.recommendedAction, /mission medical support/i);
+  assert.equal(response.status, 503);
+  assert.match(data.error, /Continue the numbered first-aid steps already shown/i);
+  assert.doesNotMatch(data.error, /^Contact mission medical support/i);
 });
 
 test("emergency API fails safely when Gemini is not configured", async () => {
@@ -152,6 +154,23 @@ test("emergency API fails safely when Gemini is not configured", async () => {
   });
   const data = await response.json();
   assert.equal(response.status, 503);
-  assert.match(data.error, /has not assessed the symptoms/i);
+  assert.match(data.error, /Continue the numbered first-aid steps already shown/i);
+});
+
+test("a selected crew member is accepted for emergency context lookup", async () => {
+  const response = await fetch(`${origin}/api/emergency/assistant`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      identity: "OTHER_KNOWN", astronautId: "ast-1",
+      screen: { responsive: "UNKNOWN", breathingNormally: "UNKNOWN", severeBleeding: "UNKNOWN" },
+      concern: "Radiation exposure. Patient: Dr. Elena Vasquez. First-aid steps are already shown.",
+      conversationHistory: [],
+      demoState: { astronautId: "ast-1", records: [], activeAlerts: [] },
+    }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 503);
+  assert.equal(data.code, "AI_NOT_CONFIGURED");
+  assert.match(data.error, /Continue the numbered first-aid steps already shown/i);
 });
 

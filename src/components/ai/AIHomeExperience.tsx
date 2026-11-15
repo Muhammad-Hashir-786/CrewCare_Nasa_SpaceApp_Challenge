@@ -2,185 +2,209 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Activity, ArrowRight, Bot, LoaderCircle, Mic, MicOff, Send, Shield, Wifi } from "lucide-react";
+import { Activity, ArrowRight, Bot, CircleAlert, LoaderCircle, Mic, MicOff, RotateCcw, Send, Shield, Sparkles, Volume2, Wifi } from "lucide-react";
 import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import { EmergencyAssistant, type EmergencyContext } from "@/components/emergency/EmergencyAssistant";
 import type { HealthRecord } from "@/types";
 
-type Evidence = { id: string; label: string; timestamp: string | null };
-type AssistantResult = {
-  analysis: { title: string; summary: string; currentInterpretation: string; evidenceReferences: string[]; limitations: string[] };
-  evidence: Evidence[];
-  provider: string;
-  model: string;
-  generatedAt: string;
-  criticalAlerts: Array<{ id: string; title: string; message: string; severity: string }>;
+type Evidence = { id: string; label: string; timestamp: string | null; url?: string };
+type AIAnswer = {
+  verdict: "ALL_CLEAR" | "WATCH" | "ACT_NOW";
+  whatThisCouldMean: string;
+  whatToDoNow: string[];
+  watchOutFor: string[];
+  whenToGetHelpImmediately: string;
+  title: string; summary: string; currentInterpretation: string;
+  evidenceReferences: string[]; limitations: string[];
 };
+type AssistantResult = { analysis: AIAnswer; evidence: Evidence[]; provider: string; model: string; generatedAt: string; criticalAlerts: Array<{ id: string; title: string; message: string; severity: string }> };
 type ChatMessage = { role: "user" | "assistant"; text: string };
 type RecognitionEvent = { results: ArrayLike<ArrayLike<{ transcript: string }>> };
 type RecognitionLike = { lang: string; interimResults: boolean; maxAlternatives: number; onresult: ((event: RecognitionEvent) => void) | null; onerror: ((event: { error?: string }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void };
 type RecognitionConstructor = new () => RecognitionLike;
+const FOLLOW_UPS = ["What if it gets worse?", "Explain it simpler", "Show the steps again"];
+const firstName = (name: string) => name.split(/\s+/).find((part) => !/^(dr\.?|capt\.?|commander)$/i.test(part)) ?? name;
 
 export function AIHomeExperience() {
-  const [astronautId, setAstronautId] = useState(DEMO_ASTRONAUTS[0].id);
+  const [astronautId, setAstronautId] = useState("");
+  const [answeredForId, setAnsweredForId] = useState<string | null>(null);
+  const [answerUsedData, setAnswerUsedData] = useState("");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<AssistantResult | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
   const [error, setError] = useState("");
+  const [canRetry, setCanRetry] = useState(false);
   const [localRecords, setLocalRecords] = useState<HealthRecord[]>([]);
   const [localAssessment, setLocalAssessment] = useState<EmergencyContext["latestAssessment"]>(null);
   const [localAlerts, setLocalAlerts] = useState<NonNullable<EmergencyContext["activeAlerts"]>>([]);
   const recognition = useRef<RecognitionLike | null>(null);
-  const astronaut = DEMO_ASTRONAUTS.find((item) => item.id === astronautId) ?? DEMO_ASTRONAUTS[0];
+  const astronaut = DEMO_ASTRONAUTS.find((item) => item.id === astronautId);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const saved = localStorage.getItem("crewcare_astronaut_id");
+      const saved = localStorage.getItem("crewcare_ai_astronaut_id");
       if (saved && DEMO_ASTRONAUTS.some((member) => member.id === saved)) setAstronautId(saved);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
-
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        const parsedRecords = JSON.parse(localStorage.getItem(`crewcare_checkins_${astronautId}`) ?? "[]");
-        const parsedAssessment = JSON.parse(localStorage.getItem(`crewcare_assessment_${astronautId}`) ?? "null");
-        const parsedAlerts = JSON.parse(localStorage.getItem(`crewcare_demo_alerts_${astronautId}`) ?? "[]");
-        setLocalRecords(Array.isArray(parsedRecords) ? parsedRecords as HealthRecord[] : []);
-        setLocalAssessment(parsedAssessment && parsedAssessment.id ? parsedAssessment : null);
-        setLocalAlerts(Array.isArray(parsedAlerts) ? parsedAlerts : []);
-      } catch { setLocalRecords([]); setLocalAssessment(null); setLocalAlerts([]); }
-    }, 0);
+    const timer = window.setTimeout(() => { try {
+      if (!astronautId) { setLocalRecords([]); setLocalAssessment(null); setLocalAlerts([]); return; }
+      const parsedRecords = JSON.parse(localStorage.getItem(`crewcare_checkins_${astronautId}`) ?? "[]");
+      const parsedAssessment = JSON.parse(localStorage.getItem(`crewcare_assessment_${astronautId}`) ?? "null");
+      const parsedAlerts = JSON.parse(localStorage.getItem(`crewcare_demo_alerts_${astronautId}`) ?? "[]");
+      setLocalRecords(Array.isArray(parsedRecords) ? parsedRecords as HealthRecord[] : []);
+      setLocalAssessment(parsedAssessment && parsedAssessment.id ? parsedAssessment : null);
+      setLocalAlerts(Array.isArray(parsedAlerts) ? parsedAlerts : []);
+    } catch { setLocalRecords([]); setLocalAssessment(null); setLocalAlerts([]); } }, 0);
     return () => window.clearTimeout(timer);
   }, [astronautId]);
+  useEffect(() => () => { recognition.current?.stop(); window.speechSynthesis?.cancel(); }, []);
 
-  useEffect(() => () => { recognition.current?.stop(); }, []);
-
+  const clearConversation = () => { setAnswer(null); setMessages([]); setError(""); setCanRetry(false); setAnsweredForId(null); setAnswerUsedData(""); };
+  const selectAstronaut = (id: string) => {
+    setAstronautId(id); if (id) localStorage.setItem("crewcare_ai_astronaut_id", id); else localStorage.removeItem("crewcare_ai_astronaut_id");
+    clearConversation();
+  };
   const toggleVoice = () => {
+    setCanRetry(false);
     if (listening) { recognition.current?.stop(); setListening(false); return; }
     const host = window as Window & { SpeechRecognition?: RecognitionConstructor; webkitSpeechRecognition?: RecognitionConstructor };
     const SpeechRecognition = host.SpeechRecognition ?? host.webkitSpeechRecognition;
     if (!SpeechRecognition) { setError("Voice input is not supported in this browser. Type your question instead."); return; }
     setError("");
     try {
-      const instance = new SpeechRecognition();
-      instance.lang = navigator.language || "en-US"; instance.interimResults = false; instance.maxAlternatives = 1;
+      const instance = new SpeechRecognition(); instance.lang = navigator.language || "en-US"; instance.interimResults = false; instance.maxAlternatives = 1;
       instance.onresult = (event) => { const transcript = event.results[0]?.[0]?.transcript?.trim(); if (transcript) setQuestion(transcript); };
       instance.onerror = (event) => { setListening(false); setError(event.error === "not-allowed" ? "Microphone permission was denied. Type your question instead." : "Voice input stopped. Try again or type your question."); };
-      instance.onend = () => setListening(false);
-      recognition.current = instance; instance.start(); setListening(true);
+      instance.onend = () => setListening(false); recognition.current = instance; instance.start(); setListening(true);
     } catch { setListening(false); setError("Could not start voice input. Type your question instead."); }
   };
 
-  const ask = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const prompt = question.trim();
-    if (prompt.length < 4 || loading) return;
-    recognition.current?.stop(); setListening(false);
-    setLoading(true); setError(""); setAnswer(null);
-    let demoState;
-    try {
-      const records = JSON.parse(localStorage.getItem(`crewcare_checkins_${astronautId}`) ?? "[]");
-      const latestAssessment = JSON.parse(localStorage.getItem(`crewcare_assessment_${astronautId}`) ?? "null");
-      const activeAlerts = JSON.parse(localStorage.getItem(`crewcare_demo_alerts_${astronautId}`) ?? "[]");
-      demoState = [{ astronautId, records: Array.isArray(records) ? records.slice(-180) : [], latestAssessment, activeAlerts: Array.isArray(activeAlerts) ? activeAlerts.slice(-50) : [] }];
-    } catch {
-      demoState = [{ astronautId, records: [], latestAssessment: null, activeAlerts: [] }];
+  const ask = async (event?: React.FormEvent, followUp?: string) => {
+    event?.preventDefault();
+    const prompt = (followUp ?? question).trim();
+    if (loading) return;
+    if (!astronaut && !followUp) {
+      const explicit = prompt.match(/\bfor\s+([a-z]+)\b/i)?.[1]?.toLowerCase();
+      const matched = explicit && DEMO_ASTRONAUTS.find((member) => member.name.toLowerCase().includes(explicit) || member.callsign.toLowerCase() === explicit);
+      if (matched) { setAstronautId(matched.id); localStorage.setItem("crewcare_ai_astronaut_id", matched.id); }
     }
+    const selected = astronaut ?? (!astronautId && !followUp ? (() => {
+      const explicit = prompt.match(/\bfor\s+([a-z]+)\b/i)?.[1]?.toLowerCase();
+      return explicit ? DEMO_ASTRONAUTS.find((member) => member.name.toLowerCase().includes(explicit) || member.callsign.toLowerCase() === explicit) : undefined;
+    })() : undefined);
+    if (prompt.length < 4) return;
+    recognition.current?.stop(); setListening(false); setLoading(true); setError(""); setCanRetry(false); setAnswer(null);
     try {
+      let demoState;
+      if (selected) {
+        try {
+          const records = JSON.parse(localStorage.getItem(`crewcare_checkins_${selected.id}`) ?? "[]");
+          const latestAssessment = JSON.parse(localStorage.getItem(`crewcare_assessment_${selected.id}`) ?? "null");
+          const activeAlerts = JSON.parse(localStorage.getItem(`crewcare_demo_alerts_${selected.id}`) ?? "[]");
+          demoState = [{ astronautId: selected.id, records: Array.isArray(records) ? records.slice(-180) : [], latestAssessment, activeAlerts: Array.isArray(activeAlerts) ? activeAlerts.slice(-50) : [] }];
+        } catch { demoState = [{ astronautId: selected.id, records: [], latestAssessment: null, activeAlerts: [] }]; }
+      }
       const response = await fetch("/api/ai/assistant", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: "astronaut", astronautId, question: prompt, period: "30d", conversationHistory: messages.slice(-8), demoStates: demoState }),
+        body: JSON.stringify({ scope: selected ? "astronaut" : "general", ...(selected ? { astronautId: selected.id, demoStates: demoState } : {}), question: prompt, period: "24h", conversationHistory: (selected ? messages : []).slice(-8) }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "The assistant could not complete that request.");
-      const result = data as AssistantResult;
-      setAnswer(result);
-      setMessages((previous) => [...previous, { role: "user" as const, text: prompt }, { role: "assistant" as const, text: result.analysis.summary }].slice(-10));
-      setQuestion("");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The assistant could not complete that request.");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const code = typeof data.code === "string" ? data.code : "";
+        const friendlyMessage = code === "AI_NOT_CONFIGURED" || code === "AI_MODEL_NOT_CONFIGURED" ? "Crew Care AI needs a provider key and model configured by the project owner." : code === "AI_RATE_LIMITED" ? "Gemini is receiving a lot of requests right now. Wait a moment, then try again." : code === "AI_TIMEOUT" ? "Gemini took too long to respond. Your question is still here; try once more." : code === "AI_TEMPORARILY_UNAVAILABLE" || code === "AI_PROVIDER_UNAVAILABLE" ? "Gemini is temporarily busy. Your question is still here; try again in a moment." : (typeof data.error === "string" ? data.error : "Crew Care couldn’t finish that response. Please try again.");
+        setError(friendlyMessage); setCanRetry(response.status === 429 || response.status >= 500 || code === "AI_PROVIDER_UNAVAILABLE"); return;
+      }
+      const result = data as AssistantResult; setAnswer(result);
+      setAnsweredForId(selected?.id ?? null);
+      if (selected) {
+        const merged = new Map((selected.healthRecords ?? []).map((record) => [record.id, record]));
+        for (const record of demoState?.[0]?.records ?? []) merged.set(record.id, record);
+        const storedLatest = [...merged.values()].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime()).at(-1);
+        setAnswerUsedData(storedLatest ? `Using ${firstName(selected.name)}'s latest check-in: ${storedLatest.heartRate != null ? `heart rate ${storedLatest.heartRate} bpm` : "heart rate not recorded"}${storedLatest.systolicBP != null && storedLatest.diastolicBP != null ? `, blood pressure ${storedLatest.systolicBP}/${storedLatest.diastolicBP}` : ""}${storedLatest.notes ? `; note: ${storedLatest.notes}` : ""}.` : `No stored check-in is available for ${firstName(selected.name)}; this is general advice.`);
+      } else setAnswerUsedData("");
+      const userMessage: ChatMessage = { role: "user", text: prompt };
+      const assistantMessage: ChatMessage = { role: "assistant", text: result.analysis.summary };
+      setMessages((previous) => [...previous, userMessage, assistantMessage].slice(-10));
+      if (!followUp) setQuestion("");
+    } catch {
+      setError("Crew Care couldn’t connect just now. Your question is still here; check your connection and try again."); setCanRetry(true);
     } finally { setLoading(false); }
   };
 
-  const evidence = new Map((answer?.evidence ?? []).map((item) => [item.id, item]));
-  const emergencyContext = useMemo<EmergencyContext>(() => {
+  const emergencyContext = useMemo<EmergencyContext | undefined>(() => {
+    if (!astronaut) return undefined;
     const recordMap = new Map((astronaut.healthRecords ?? []).map((record) => [record.id, record]));
     for (const record of localRecords) recordMap.set(record.id, { ...record, isSimulated: true });
-    const activeAlerts = new Map((astronaut.activeAlerts ?? []).map((alert) => [alert.id, alert]));
-    for (const alert of localAlerts) if (alert?.id) activeAlerts.set(alert.id, alert);
+    const alertMap = new Map((astronaut.activeAlerts ?? []).map((alert) => [alert.id, alert]));
+    for (const alert of localAlerts) if (alert?.id) alertMap.set(alert.id, alert);
     const records = [...recordMap.values()].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
     const latestAssessment = localAssessment ?? astronaut.latestAssessment;
-    return {
-      astronautId: astronaut.id,
-      callsign: astronaut.callsign,
-      assessment: latestAssessment?.status ?? "NOT AVAILABLE",
-      latestAssessment: latestAssessment ? { ...latestAssessment, createdAt: new Date(latestAssessment.createdAt).toISOString() } : null,
-      activeAlerts: [...activeAlerts.values()].map((alert) => ({ ...alert, createdAt: new Date(alert.createdAt).toISOString() })),
-      activeCriticalAlerts: [...activeAlerts.values()].filter((alert) => alert.status === "ACTIVE" && alert.severity === "CRITICAL").map(({ title, message }) => ({ title, message })),
-      lastMeasuredAt: records.at(-1) ? new Date(records.at(-1)!.recordedAt).toISOString() : null,
-      healthRecords: records,
-      isSimulated: true,
-    };
+    return { astronautId: astronaut.id, callsign: astronaut.callsign, assessment: latestAssessment?.status ?? "NOT AVAILABLE", latestAssessment: latestAssessment ? { ...latestAssessment, createdAt: new Date(latestAssessment.createdAt).toISOString() } : null, activeAlerts: [...alertMap.values()].map((alert) => ({ ...alert, createdAt: new Date(alert.createdAt).toISOString() })), activeCriticalAlerts: [...alertMap.values()].filter((alert) => alert.status === "ACTIVE" && alert.severity === "CRITICAL").map(({ title, message }) => ({ title, message })), lastMeasuredAt: records.at(-1) ? new Date(records.at(-1)!.recordedAt).toISOString() : null, healthRecords: records, isSimulated: true };
   }, [astronaut, localRecords, localAssessment, localAlerts]);
+  const evidence = new Map((answer?.evidence ?? []).map((item) => [item.id, item]));
 
-  return (
-    <main className="app-shell landing-shell">
-      <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
-      <div className="landing-content">
-        <div className="landing-badge"><span className="live-dot"/><span>NASA SPACE APPS CHALLENGE 2026</span><span className="mission-pill-sep"/><span>DEMO BUILD</span></div>
+  const speakAnswer = () => {
+    if (!answer || !("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel(); const a = answer.analysis;
+    const speech = new SpeechSynthesisUtterance(`${a.verdict.replace("_", " ")}. What this could mean. ${a.whatThisCouldMean}. What to do right now. ${a.whatToDoNow.join(". ")}. Watch out for. ${a.watchOutFor.join(". ")}. When to get help immediately. ${a.whenToGetHelpImmediately}`);
+    speech.onstart = () => setSpeaking(true); speech.onend = () => setSpeaking(false); speech.onerror = () => setSpeaking(false); window.speechSynthesis.speak(speech);
+  };
 
-        <Link href="/" className="landing-brand" aria-label="Crew Care home">
-          <span className="landing-brand-mark"><span/></span>
-          <span className="landing-brand-name">CREW<span>CARE</span></span>
-        </Link>
-        <p className="landing-subtitle">Astronaut Health Assessment &amp; Monitoring</p>
-        <p className="landing-description">Supporting crew health awareness during long-duration spaceflight. Monitor vitals, track trends, and stay informed — mission day by day.</p>
-
-        <section className="landing-assistant" aria-label="Ask Crew Care AI">
-          <form className="landing-search-form" onSubmit={ask}>
-            <span className="landing-search-icon"><Bot size={18}/></span>
-            <label className="landing-search-input"><span>ASK CREWCARE AI</span><input aria-label="Ask a health question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about symptoms, vitals, sleep, or mission health…" maxLength={600}/></label>
-            <button className={listening ? "landing-search-mic listening" : "landing-search-mic"} type="button" onClick={toggleVoice} aria-label={listening ? "Stop voice input" : "Speak your question"} aria-pressed={listening}>{listening ? <MicOff size={17}/> : <Mic size={17}/>}</button>
-            <button className="landing-search-submit" type="submit" aria-label={loading ? "Asking Crew Care AI" : "Ask Crew Care AI"} disabled={loading || question.trim().length < 4}>{loading ? <LoaderCircle size={17} className="spin"/> : <Send size={17}/>}</button>
-          </form>
-          <p className="landing-ai-note">Voice is optional. When configured, Gemini receives your question and the selected fictional profile context. Never enter real crew data here yet.</p>
-          {error && <p role="alert" className="landing-ai-error">{error}</p>}
-          {answer && <article className="landing-answer" aria-live="polite">
-            {answer.criticalAlerts.map((alert) => <div className="landing-critical" key={alert.id}><strong>{alert.severity} ALERT · {alert.title}</strong><p>{alert.message}</p></div>)}
-            <span className="section-kicker">{answer.analysis.title} · {answer.provider} / {answer.model}</span>
-            <p className="landing-answer-summary">{answer.analysis.summary}</p>
-            <p className="landing-answer-detail">{answer.analysis.currentInterpretation}</p>
-            <div className="landing-evidence">{answer.analysis.evidenceReferences.map((id) => { const item = evidence.get(id); return item ? <span key={id}>{item.label}{item.timestamp ? ` · ${new Date(item.timestamp).toLocaleDateString()}` : ""}</span> : null; })}</div>
-            {answer.analysis.limitations.length > 0 && <p className="landing-answer-limit">{answer.analysis.limitations.join(" ")}</p>}
-          </article>}
-        </section>
-
-        <section className="landing-emergency-cta" aria-label="Emergency assistance">
-          <div><strong>Need help now?</strong><span>Open the safety intake and contact mission medical support.</span></div>
-          <EmergencyAssistant context={emergencyContext}/>
-        </section>
-
-        {messages.length > 0 && <div className="landing-conversation-hint" aria-live="polite">Conversation continues with {astronaut.callsign} · {messages.filter((message) => message.role === "user").length} question(s)</div>}
-
-        <div className="landing-portals">
-          <Link href="/select" className="landing-portal-link"><article className="landing-portal-card landing-portal-astronaut">
-            <span className="vital-icon vital-teal"><Activity size={20} strokeWidth={1.7}/></span>
-            <h2>Astronaut Portal</h2><p>Your personal health dashboard, daily check-ins, vital trends and health education.</p>
-            <span className="landing-portal-action">Enter portal <ArrowRight size={15} strokeWidth={1.7}/></span>
-          </article></Link>
-          <Link href="/mission-control" className="landing-portal-link"><article className="landing-portal-card landing-portal-mission">
-            <span className="vital-icon vital-violet"><Wifi size={20} strokeWidth={1.7}/></span>
-            <h2>Mission Control</h2><p>Monitor all crew members, review alerts, track health trends across the mission.</p>
-            <span className="landing-portal-action">Enter portal <ArrowRight size={15} strokeWidth={1.7}/></span>
-          </article></Link>
+  return <main className="app-shell landing-shell">
+    <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
+    <div className="landing-content">
+      <div className="landing-badge"><span className="live-dot"/><span>NASA SPACE APPS CHALLENGE 2026</span><span className="mission-pill-sep"/><span>DEMO BUILD</span></div>
+      <header className={`landing-hero ${loading || speaking ? "is-active" : ""}`}>
+        <div className="doctor-agent" role="img" aria-label="Friendly CrewCare doctor agent">
+          <span className="agent-ring agent-ring-one"/><span className="agent-ring agent-ring-two"/>
+          <svg viewBox="0 0 120 120" aria-hidden="true" className="doctor-agent-svg">
+            <circle cx="60" cy="63" r="38" className="agent-face"/><path d="M34 44q2-19 26-19t26 19" className="agent-cap"/><path d="M51 25v-8h18v8" className="agent-cap-top"/><path d="M60 17v8m-4-4h8" className="agent-cross"/>
+            <circle cx="47" cy="62" r="3" className="agent-eye"/><circle cx="73" cy="62" r="3" className="agent-eye"/><path d="M49 75q11 10 22 0" className="agent-smile"/>
+            <path d="M27 67v15q0 13 13 13h5" className="agent-stethoscope"/><circle cx="49" cy="95" r="6" className="agent-stethoscope-head"/>
+          </svg>
         </div>
+        <Link href="/" className="landing-brand-name" aria-label="CrewCare home">CREW<span>CARE</span></Link>
+        <p className="landing-subtitle">Astronaut Health Assessment &amp; Monitoring</p>
+      </header>
 
-        <div className="landing-disclaimer"><Shield size={14} strokeWidth={1.7}/><span>All crew data and assessments shown here are fictional and simulated. Crew Care is under development, is not a medical device, and does not replace qualified medical support. Configured thresholds are illustrative only.</span></div>
+      <section className="landing-assistant" aria-label="Ask Crew Care AI">
+        <form className="landing-search-form" onSubmit={ask}>
+          <span className="landing-search-icon"><Bot size={20}/></span>
+          <label className="landing-search-input"><span>ASK CREWCARE AI</span><input aria-label="Ask a health question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask about symptoms, vitals, sleep, or mission health…" maxLength={600}/></label>
+          <button className={listening ? "landing-search-mic listening" : "landing-search-mic"} type="button" onClick={toggleVoice} aria-label={listening ? "Stop voice input" : "Speak your question"} aria-pressed={listening}>{listening ? <MicOff size={19}/> : <Mic size={19}/>}</button>
+          <button className="landing-search-submit" type="submit" aria-label={loading ? "Asking Crew Care AI" : "Ask Crew Care AI"} disabled={loading || question.trim().length < 4}>{loading ? <LoaderCircle size={19} className="spin"/> : <Send size={19}/>}</button>
+        </form>
+        <div className="landing-mode"><label htmlFor="ai-profile">Answer mode</label><select id="ai-profile" value={astronautId} onChange={(event) => selectAstronaut(event.target.value)}><option value="">General advice — no crew member selected</option>{DEMO_ASTRONAUTS.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></div>
+        <p className="landing-ai-note">{astronaut ? `Answering for ${astronaut.name}.` : "General advice — no crew member selected."} Fictional crew profiles are used only when explicitly selected.</p>
+        {loading && <div className="landing-ai-status" role="status" aria-live="polite"><span className="landing-ai-status-orb"><Sparkles size={15}/></span><span>Reading your question and preparing guidance…</span><span className="landing-ai-status-dots" aria-hidden="true">•••</span></div>}
+        {error && <div role="alert" className="landing-ai-error"><CircleAlert size={18} aria-hidden="true"/><p>{error}</p>{canRetry && <button type="button" onClick={() => { void ask(); }} disabled={loading}><RotateCcw size={14}/> Try again</button>}</div>}
+        {answer && <article className={`landing-answer verdict-${answer.analysis.verdict.toLowerCase()}`} aria-live="polite">
+          <div className="answer-heading"><div><span className="answer-mode-label">{answeredForId ? `Answering for ${DEMO_ASTRONAUTS.find((member) => member.id === answeredForId)?.name ?? "selected astronaut"}` : "General advice — no crew member selected"}</span>{answeredForId && <p className="answer-data-used">{answerUsedData}</p>}</div><button className="answer-speak" type="button" onClick={speakAnswer} aria-label={speaking ? "Speaking answer" : "Read answer aloud"}><Volume2 size={21}/></button></div>
+          <div className="verdict-badge"><span className="verdict-dot"/>{answer.analysis.verdict === "ALL_CLEAR" ? "All clear" : answer.analysis.verdict === "WATCH" ? "Watch" : "Act now"}</div>
+          {answer.criticalAlerts.map((alert) => <div className="landing-critical" key={alert.id}><strong>{alert.severity} ALERT · {alert.title}</strong><p>{alert.message}</p></div>)}
+          <section className="answer-section"><h3>What this could mean</h3><p>{answer.analysis.whatThisCouldMean}</p></section>
+          <section className="answer-section"><h3>What to do right now</h3><ol>{answer.analysis.whatToDoNow.map((step, index) => <li key={`${index}-${step}`}>{step}</li>)}</ol></section>
+          <section className="answer-section"><h3>Watch out for</h3><ul>{answer.analysis.watchOutFor.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></section>
+          <section className="answer-section"><h3>When to get help immediately</h3><p>{answer.analysis.whenToGetHelpImmediately}</p></section>
+          <details className="answer-more"><summary>More detail</summary><p>{answer.analysis.currentInterpretation}</p><div className="landing-evidence">{answer.analysis.evidenceReferences.map((id) => { const item = evidence.get(id); return item ? <span key={id}>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.label}</a> : item.label}{item.timestamp ? ` · ${new Date(item.timestamp).toLocaleDateString()}` : ""}</span> : null; })}</div><p className="landing-answer-limit">CrewCare is not a doctor and this is not a diagnosis — this is guidance to act on until professional help arrives.</p></details>
+          <div className="answer-followups" aria-label="Suggested follow-up questions">{FOLLOW_UPS.map((chip) => <button key={chip} type="button" onClick={() => { setQuestion(chip); void ask(undefined, chip); }}>{chip}</button>)}</div>
+        </article>}
+      </section>
+
+      <section className="landing-emergency-cta" aria-label="Emergency assistance">
+        <div><strong>Need help now?</strong><span>Open the safety intake and contact mission medical support.</span></div>
+        <EmergencyAssistant context={emergencyContext}/>
+      </section>
+      <div className="landing-portals">
+        <Link href="/select" className="landing-portal-link"><article className="landing-portal-card landing-portal-astronaut"><span className="vital-icon vital-teal"><Activity size={20} strokeWidth={1.7}/></span><h2>Astronaut Portal</h2><p>Your personal health dashboard, daily check-ins, vital trends and health education.</p><span className="landing-portal-action">Enter portal <ArrowRight size={15} strokeWidth={1.7}/></span></article></Link>
+        <Link href="/mission-control" className="landing-portal-link"><article className="landing-portal-card landing-portal-mission"><span className="vital-icon vital-violet"><Wifi size={20} strokeWidth={1.7}/></span><h2>Mission Control</h2><p>Monitor all crew members, review alerts, track health trends across the mission.</p><span className="landing-portal-action">Enter portal <ArrowRight size={15} strokeWidth={1.7}/></span></article></Link>
       </div>
-    </main>
-  );
+      <div className="landing-disclaimer"><Shield size={14} strokeWidth={1.7}/><span>All crew data and assessments shown here are fictional and simulated. Crew Care is under development, is not a medical device, and does not replace qualified medical support. Configured thresholds are illustrative only.</span></div>
+    </div>
+  </main>;
 }

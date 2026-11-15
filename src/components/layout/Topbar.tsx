@@ -1,29 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { AlertOctagon, ChevronRight } from "lucide-react";
 import { EmergencyAssistant, type EmergencyContext } from "@/components/emergency/EmergencyAssistant";
 
 interface TopbarProps {
   astronautName?: string;
   astronautRole?: string;
   astronautInitials?: string;
-  missionName?: string;
-  missionSol?: string | number;
   emergencyContext?: EmergencyContext;
+  emergencyHref?: string;
+  keepDemoModeOnMobile?: boolean;
 }
 
 export function Topbar({
   astronautName = "Alex Morgan",
   astronautRole = "Flight Engineer",
   astronautInitials = "AM",
-  missionName = "HORIZON VII",
-  missionSol = 184,
   emergencyContext,
+  emergencyHref,
+  keepDemoModeOnMobile = false,
 }: TopbarProps) {
   return (
     <>
-      <header className="topbar">
+      <header className={`topbar${keepDemoModeOnMobile ? " topbar-astronaut" : ""}`}>
         <Link href="/" className="brand" aria-label="Crew Care home">
           <span className="brand-mark">
             <span className="brand-mark-dot" />
@@ -33,19 +33,14 @@ export function Topbar({
           </span>
         </Link>
 
-        <div className="mission-pill">
-          <span className="live-dot" />
-          <span>{missionName}</span>
-          <span className="mission-pill-sep" />
-          <span className="muted-text">SOL {missionSol}</span>
-        </div>
-
         <div className="top-actions">
           <div className="connection">
             <span className="live-dot" aria-hidden="true" />
             <span>Demo mode</span>
           </div>
-          <EmergencyAssistant context={emergencyContext}/>
+          {emergencyHref
+            ? <Link href={emergencyHref} className="emergency-btn" aria-label="Open emergency assistance"><AlertOctagon size={22} strokeWidth={1.9}/><span>Emergency</span></Link>
+            : <EmergencyAssistant context={emergencyContext}/>}
           <Link href="/select" className="avatar-btn" aria-label="Switch demo astronaut profile">
             <span className="avatar-initials">{astronautInitials}</span>
             <span>

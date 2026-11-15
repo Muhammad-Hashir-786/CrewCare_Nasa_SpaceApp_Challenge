@@ -16,13 +16,13 @@ Coverage includes:
 - Deterministic critical assessment response using a synthetic high heart-rate input.
 - Clear `AI_NOT_CONFIGURED` behavior instead of a canned response.
 - Root route preserves the portal cards, AI question bar, and home-screen emergency entry point.
-- Emergency API immediately bypasses Gemini for urgent/unknown safety answers.
-- Emergency API returns an explicit unconfigured-provider response instead of inventing a model answer.
+- Emergency follow-up does not short-circuit urgent reports into a contact-only answer; local numbered first-aid steps remain available when Gemini is unconfigured.
+- Emergency guide orders radiation exposure and decompression sickness first and checks that each scenario has 5–6 steps, including immediate shelter/dosimeter and CPR guidance.
 - Deterministic safety-screen behavior across nine requested emergency simulation classes; no care protocol can be selected until approved.
 
 ## Executed results (2026-11-14)
 
-- `npm test`: **14 passed, 0 failed**; includes emergency API and decision-support scenarios.
+- `npm test`: **18 passed, 0 failed**; includes the revised space-first emergency flow, emergency API and decision-support scenarios.
 - `npm run lint`: **passed** (a React dependency warning found during review was fixed).
 - `npx tsc --noEmit`: **passed**.
 - `npx prisma validate`: **passed** against the schema using a placeholder URL; this did not connect to PostgreSQL.
@@ -46,6 +46,7 @@ The placeholder URL above is for schema validation only. It does not create a da
 2. Open Mission Control → Alerts. Confirm the critical demo alert appears; acknowledge it and reload to confirm browser-local retention.
 3. Open Mission Control → AI Intel. Confirm local simulated check-ins and alerts are included in the retrieved evidence context. Asking the assistant without an AI key must return a configuration error and no generated answer.
 4. Open `/select` and use **Reset browser demo data**. Confirm check-ins, local assessment state, local alerts, AI conversations, recommendation statuses, and demo profile selection reset. The reset must not delete PostgreSQL data.
+5. Open the Emergency assistant. Confirm Radiation exposure and Decompression sickness are first; select Radiation exposure and verify the shelter and dosimeter steps appear with the live summary. Select Collapsed / not responding and verify immediate breathing check, CPR at 100–120/min, and the pace cue.
 
 ## Not verified / not yet covered
 

@@ -6,7 +6,7 @@ import type { DemoState } from "./demo-state";
 
 export type AIAnalysisPeriod = "24h" | "7d" | "30d" | "90d" | "mission";
 export interface AIContext {
-  scope: "astronaut" | "mission";
+  scope: "astronaut" | "mission" | "general";
   period: AIAnalysisPeriod;
   generatedAt: string;
   question: string;
@@ -25,6 +25,7 @@ const readable = (record: HealthRecord) => ({
   sleepHours: record.sleepDuration ?? null, sleepQuality1to5: record.sleepQuality ?? null,
   mood: record.mood ?? null, fatigue: record.fatigue ?? null, stress1to5: record.stressLevel ?? null,
   anxiety1to5: record.anxietyLevel ?? null, symptoms: record.symptoms ?? null, source: record.measurementSource ?? "unknown", simulated: record.isSimulated !== false,
+  notes: record.notes ?? null,
 });
 
 function buildSubject(astronaut: Astronaut, period: AIAnalysisPeriod, evidence: EvidenceItem[], demoState?: DemoState) {
@@ -88,6 +89,30 @@ export function buildAstronautAIContext(astronautId: string, question: string, p
   const evidence: EvidenceItem[] = [];
   const { subject, missing } = buildSubject(astronaut, period, evidence, demoState);
   return { scope: "astronaut", period, generatedAt: new Date().toISOString(), question, healthDataIsSimulated: true, subjects: [subject], evidence, missingInformation: missing, mission: { name: DEMO_MISSION.name, code: DEMO_MISSION.code } };
+}
+
+/** Minimal context for the home-page assistant: current data only, never mission-wide history. */
+export function buildLatestAstronautAIContext(astronautId: string, question: string, demoState?: DemoState): AIContext | null {
+  const context = buildAstronautAIContext(astronautId, question, "24h", demoState);
+  if (!context) return null;
+  const subject = context.subjects[0];
+  const current = subject.currentMeasurements as { id?: string } | null;
+  const assessment = subject.latestAssessment as { id?: string } | null;
+  const allowed = new Set([current?.id, assessment?.id, ...subject.activeAlerts.map((alert) => alert.id)].filter(Boolean));
+  return {
+    ...context,
+    evidence: context.evidence.filter((item) => allowed.has(item.id)),
+    missingInformation: subject.currentMeasurements ? context.missingInformation : ["No stored health measurements are available for this crew member; use general advice only."],
+    subjects: [{ ...subject, baselines: [], trends: [], anomalies: [], patterns: [], forecasts: [], recommendations: [] }],
+  };
+}
+
+/** Context-free home-page advice. No crew names, records, vitals, or demo state are included. */
+export function buildGeneralAIContext(question: string): AIContext {
+  return {
+    scope: "general", period: "24h", generatedAt: new Date().toISOString(), question, healthDataIsSimulated: true,
+    subjects: [], evidence: [], missingInformation: [], mission: { name: "", code: "" },
+  };
 }
 
 export function buildMissionAIContext(question: string, period: AIAnalysisPeriod = "7d", demoStates: DemoState[] = []): AIContext {

@@ -16,12 +16,27 @@ NASA's medical-condition planning table spans routine concerns and high-conseque
 | Gravity fields | Mission phase and gravity environment (microgravity, partial gravity, Earth-normal), transition dates | Do not infer a condition from gravity exposure. |
 | Hostile/closed environments | Mission-approved cabin/suit environmental alerts, such as air-quality or pressure events, with timestamps | Environmental sensors and medical sensors are distinct sources; preserve provenance and uncertainty. |
 
+## Emergency context facts used by the prototype
+
+These short facts explain why a spaceflight emergency needs mission-aware action. They are context, not diagnosis, treatment thresholds, or vehicle procedures.
+
+| Context shown in the app | Research basis |
+| --- | --- |
+| Radiation exposure: solar-particle-event sheltering and dosimeter readings matter; never infer a dose or health effect from symptoms. | NASA crew-systems material describes sheltering during solar particle events and onboard radiation monitoring. [Crew Systems](https://www.nasa.gov/reference/crew-systems/) |
+| Decompression sickness: suit/cabin pressure transitions can create DCS risk; NASA calls for safe, prompt EVA return when symptoms are suspected. | NASA [Risk of Decompression Sickness](https://www.nasa.gov/reference/risk-of-decompression-sickness/). Treatment and recompression remain mission-specific. |
+| Vision changes: headward fluid shifts in microgravity can affect eye structures and vision; sudden vision loss is not presumed to be SANS. | NASA [Risk of Spaceflight-Associated Neuro-Ocular Syndrome](https://www.nasa.gov/reference/risk-of-spaceflight-associated-neuro-ocular-syndrome-sans/). |
+| Air-quality events: a spacecraft is a closed environment, and contaminants may arise from leaks, materials, or system events. | NASA [Medical Operations and Clinical Care](https://www.nasa.gov/reference/medical-operations-and-clinical-care/) and [Spaceflight Toxicology Technical Brief](https://www.nasa.gov/wp-content/uploads/2023/03/spaceflight-toxicology-technical-brief-ochmo.pdf). Follow the vehicle's environmental contingency procedure. |
+| Bone injury: spaceflight can reduce bone strength over time, making injury context relevant without assuming a fracture. | NASA [Risk of Spaceflight-Induced Bone Changes](https://www.nasa.gov/reference/risk-of-spaceflight-induced-bone-changes/). |
+| Isolation, confinement, distance from Earth, gravity fields, and hostile environments can interact; these are context, not causes to infer from an individual symptom. | NASA [Five Hazards of Human Spaceflight](https://www.nasa.gov/hrp/hazards/). |
+
+The prototype does not use the example claim that neutrons account for a specific percentage of ISS radiation: no such percentage is established in this project's research notes, and it is unnecessary to communicate the shelter/dosimeter action.
+
 ## Product rules
 
 - Preserve units, event time, source, simulated/real status, and missingness for every observation.
 - Mark user-entered sensor readings as entered by hand; do not describe them as a live device connection.
 - Show personal trends as statistical observations, not diagnoses, and keep operational alerts under their existing deterministic rules.
-- The emergency assistant can collect a concise history and surface the stored context. Until mission medical authorities approve protocols, its immediate recommendation is to contact mission medical support and follow the current mission emergency procedure. It must not invent treatment instructions.
+- The emergency assistant presents locally available, simulated first-aid cards for rapid orientation while preserving the relevant mission procedure. These cards are not approved flight protocols, do not replace vehicle-specific procedures, and must not invent mission equipment, doses, exposure thresholds, or recompression steps. Human support should be alerted in parallel when possible, while immediate physical first-aid actions continue.
 - Any use with real crew data requires approved access controls, secure storage, privacy/retention rules, an approved AI data-handling review, and a tested human escalation path.
 
 ## References

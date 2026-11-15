@@ -6,6 +6,8 @@ import { validateDemoStates } from "@/lib/ai/demo-state";
 import { generateEmergencyReply } from "@/lib/ai/emergency-chat";
 import { evaluateEmergencyScreen } from "@/lib/emergency/decision-support";
 
+export const maxDuration = 35;
+
 const ScreenSchema = z.object({
   responsive: z.enum(["YES", "NO", "UNKNOWN"]),
   breathingNormally: z.enum(["YES", "NO", "UNKNOWN"]),
@@ -28,7 +30,7 @@ export async function POST(request: NextRequest) {
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local-demo";
   const now = Date.now();
   const bucket = rateLimit.get(ip);
-  if (bucket && now - bucket.start < 60_000 && bucket.count >= 6) return NextResponse.json({ error: "Please pause briefly before continuing. If this may be urgent, contact mission medical support directly." }, { status: 429 });
+  if (bucket && now - bucket.start < 60_000 && bucket.count >= 6) return NextResponse.json({ error: "AI follow-up is rate-limited. Continue the numbered local first-aid steps shown on the device; ask another crew member to alert mission medical support in parallel if possible." }, { status: 429 });
   rateLimit.set(ip, !bucket || now - bucket.start >= 60_000 ? { start: now, count: 1 } : { ...bucket, count: bucket.count + 1 });
   if (rateLimit.size > 1000) for (const [key, value] of rateLimit) if (now - value.start >= 60_000) rateLimit.delete(key);
 
@@ -40,18 +42,13 @@ export async function POST(request: NextRequest) {
 
   // Deterministic safety screening runs before the model; unknown critical answers fail safely.
   const decision = evaluateEmergencyScreen(input.screen);
-  if (decision.escalateNow) return NextResponse.json({
-    reply: "Stop this chat and contact mission medical support now using the approved mission channel. Follow only the current approved mission emergency procedure. This application has not contacted anyone.",
-    nextQuestion: null,
-    recommendedAction: "Use the mission-approved emergency procedure and contact mission medical support now.",
-    urgency: decision.urgency,
-    isSimulated: true,
-    modelUsed: false,
-  });
+  // The client has already shown its local, situation-specific first-aid steps.
+  // Do not short-circuit urgent cases into a contact-only response: optional AI
+  // follow-up may add context while the crew continues the visible steps.
 
   let context: unknown = { recordContext: "Not available. No other person's record was retrieved." };
   let evidenceCatalog: Array<{ id: string; label: string; timestamp: string | null }> = [];
-  if ((input.identity === "SELF" || input.identity === "UNABLE_TO_COMMUNICATE") && input.astronautId) {
+  if ((input.identity === "SELF" || input.identity === "UNABLE_TO_COMMUNICATE" || input.identity === "OTHER_KNOWN") && input.astronautId) {
     if (!DEMO_ASTRONAUTS.some((member) => member.id === input.astronautId)) return NextResponse.json({ error: "Selected profile is unavailable in the fictional roster." }, { status: 404 });
     let demoState;
     try { demoState = validateDemoStates(input.demoState ? [input.demoState] : [], new Set(DEMO_ASTRONAUTS.map((member) => member.id)))[0]; }
@@ -75,14 +72,16 @@ export async function POST(request: NextRequest) {
       reply: reply.message,
       nextQuestion: reply.nextQuestion,
       evidenceReferences: reply.evidenceIds.map((id) => evidenceCatalog.find((item) => item.id === id)).filter(Boolean),
-      recommendedAction: "Contact mission medical support for a health concern. If immediate safety becomes uncertain, use the mission-approved emergency procedure now.",
-      urgency: "ROUTINE_INTAKE",
+      recommendedAction: decision.escalateNow
+        ? "Continue the numbered first-aid steps already shown. If another crew member is available, have them alert mission control in parallel; this app has not sent an alert."
+        : "Continue the numbered first-aid steps already shown and use the mission procedure. This app has not sent an alert.",
+      urgency: decision.urgency,
       isSimulated: true,
       modelUsed: true,
     });
   } catch (error) {
     const code = error instanceof Error ? error.message : "AI_PROVIDER_ERROR";
-    const status = code === "AI_NOT_CONFIGURED" || code === "AI_MODEL_NOT_CONFIGURED" ? 503 : code === "AI_RATE_LIMITED" ? 429 : 502;
-    return NextResponse.json({ error: "AI follow-up is unavailable. This application has not assessed the symptoms. Contact mission medical support; if immediate safety is uncertain, use the approved mission emergency procedure now.", code }, { status });
+    const status = code === "AI_NOT_CONFIGURED" || code === "AI_MODEL_NOT_CONFIGURED" || code === "AI_TIMEOUT" || code === "AI_PROVIDER_ERROR" ? 503 : code === "AI_RATE_LIMITED" ? 429 : 502;
+    return NextResponse.json({ error: "AI follow-up is unavailable. Continue the numbered first-aid steps already shown on the device; the app has not assessed the symptoms or contacted anyone. Use the approved mission procedure and alert mission medical support in parallel when possible.", code }, { status });
   }
 }

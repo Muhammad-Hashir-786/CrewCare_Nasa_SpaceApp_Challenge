@@ -14,6 +14,9 @@ interface VitalsChartProps {
   color?: string;
   warnMax?: number;
   warnMin?: number;
+  height?: number;
+  axisLabelColor?: string;
+  axisLabelFontSize?: number;
 }
 
 interface CustomTooltipProps {
@@ -42,7 +45,7 @@ const CustomTooltip = ({ active, payload, label, unit }: CustomTooltipProps) => 
   );
 };
 
-export function VitalsChart({ records, metric, label, unit, color = "#00d4ff", warnMax, warnMin }: VitalsChartProps) {
+export function VitalsChart({ records, metric, label, unit, color = "#00d4ff", warnMax, warnMin, height = 140, axisLabelColor = "#4a6a8a", axisLabelFontSize = 10 }: VitalsChartProps) {
   const data = records.map((r) => ({
     date: new Date(r.recordedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
     value: r[metric] as number | null,
@@ -61,17 +64,17 @@ export function VitalsChart({ records, metric, label, unit, color = "#00d4ff", w
       <p style={{ margin: "0 0 8px", fontSize: 12, color: "var(--cc-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
         {label} <span style={{ color: "var(--cc-text-muted)", fontWeight: 400 }}>({unit})</span>
       </p>
-      <ResponsiveContainer width="100%" height={140}>
+      <ResponsiveContainer width="100%" height={height}>
         <LineChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#1e3a5f44" vertical={false} />
           <XAxis
             dataKey="date"
-            tick={{ fontSize: 10, fill: "#4a6a8a" }}
+            tick={{ fontSize: axisLabelFontSize, fill: axisLabelColor }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
-            tick={{ fontSize: 10, fill: "#4a6a8a" }}
+            tick={{ fontSize: axisLabelFontSize, fill: axisLabelColor }}
             axisLine={false}
             tickLine={false}
           />

@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
-  Heart, Activity, Moon, Zap,
-  ArrowRight, ArrowLeft, Shield, AlertTriangle, CheckCircle, ChevronDown, ChevronUp,
+  Heart, Activity, Moon, Zap, Thermometer, Droplets, Gauge, Check,
+  ArrowRight, ArrowLeft, Shield, AlertTriangle,
 } from "lucide-react";
 import { useAstronaut } from "@/lib/astronaut-context";
-import { assessHealth, SYMPTOM_OPTIONS } from "@/services/health-assessment";
+import { assessHealth, DEMO_THRESHOLDS, SYMPTOM_OPTIONS } from "@/services/health-assessment";
+import styles from "./checkin.module.css";
+import { SAMPLE_MEDICAL_KIT } from "@/lib/emergency/first-aid-guidance";
 import type { HealthRecord, AssessmentResult } from "@/types";
 import type { EngineResult } from "@/lib/health/assessment-types";
 
@@ -101,6 +105,7 @@ const labelStyle: React.CSSProperties = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CheckInPage() {
+  const router = useRouter();
   const { astronaut, addHealthRecord } = useAstronaut();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<FormState>(INITIAL);
@@ -109,6 +114,11 @@ export default function CheckInPage() {
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [submittedRecord, setSubmittedRecord] = useState<HealthRecord | null>(null);
+
+  useEffect(() => {
+    if (!localStorage.getItem("crewcare_astronaut_id")) router.replace("/select");
+  }, [router]);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -193,6 +203,7 @@ export default function CheckInPage() {
       notes: rec.notes ?? null,
     };
     // Try to persist via Phase 3 API (also persists to DB if configured)
+    let resultRecord: HealthRecord = rec;
     try {
       const response = await fetch("/api/assessments", {
         method: "POST",
@@ -205,6 +216,7 @@ export default function CheckInPage() {
       }
       const body = await response.json();
       const savedRecord = body.record as HealthRecord | undefined;
+      if (savedRecord) resultRecord = savedRecord;
       if (body.result) {
         const saved = body.result as EngineResult;
         assessment.status = saved.overallStatus;
@@ -213,29 +225,28 @@ export default function CheckInPage() {
         assessment.guidance = saved.guidance;
         assessment.flags = saved.flags;
         assessment.hasEmergency = saved.hasEmergency;
-        if (savedRecord) {
-          addHealthRecord(
-            savedRecord,
-            {
-              id: body.assessmentId,
-              userId: astronaut.id,
-              status: saved.overallStatus,
-              summary: saved.summary,
-              details: saved.details,
-              guidance: saved.guidance,
-              flags: saved.flags,
-              createdAt: savedRecord.recordedAt,
-            },
-            body.isSimulated === true,
-          );
-        }
       }
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Unable to save this check-in. Please try again.");
-      setSaving(false);
-      return;
+    } catch {
+      // Demo crew are not always provisioned in the connected database. Keep the
+      // selected astronaut's assessment usable and persisted in local demo data.
+      const localRecord = { ...rec, id: `local-${astronaut.id}-${Date.now()}` };
+      resultRecord = localRecord;
+      setSaveError(null);
     }
 
+    setSubmittedRecord(resultRecord);
+    if (!astronaut.healthRecords?.some((item) => item.id === resultRecord.id)) {
+      addHealthRecord(resultRecord, {
+        id: `assessment-${resultRecord.id}`,
+        userId: astronaut.id,
+        status: assessment.status,
+        summary: assessment.summary,
+        details: assessment.details,
+        guidance: assessment.guidance,
+        flags: assessment.flags,
+        createdAt: resultRecord.recordedAt,
+      }, true);
+    }
     setResult(assessment);
     setSubmitted(true);
     setSaving(false);
@@ -245,106 +256,61 @@ export default function CheckInPage() {
     : result?.status === "AMBER" ? "#f59e0b" : "#ef4444";
 
   if (submitted && result) {
-    return <AssessmentView result={result} statusColor={statusColor} onReset={() => { setSubmitted(false); setResult(null); setForm(INITIAL); setStep(0); }} />;
+    return <AssessmentView result={result} statusColor={statusColor} astronaut={astronaut} record={submittedRecord} onUpdate={(updated, record) => { setResult(updated); setSubmittedRecord(record); addHealthRecord(record, { id: `assessment-${record.id}`, userId: astronaut.id, status: updated.status, summary: updated.summary, details: updated.details, guidance: updated.guidance, flags: updated.flags, createdAt: record.recordedAt }, true); }} onReset={() => { setSubmitted(false); setResult(null); setSubmittedRecord(null); setForm(INITIAL); setStep(0); }} />;
   }
 
   return (
-    <>
-      <div style={{ marginBottom: 24 }}>
-        <span className="section-kicker">ASTRONAUT PORTAL · {astronaut.callsign}</span>
-        <h1 style={{ margin: 0, font: "500 24px Manrope" }}>Daily Health Check-In</h1>
-        <p style={{ margin: "6px 0 0", color: "var(--muted)", fontSize: 12 }}>
-          Record today&apos;s measurements and how you&apos;re feeling — takes about 2 minutes
-        </p>
-      </div>
-
-      {/* Disclaimer */}
-      <div style={{ padding: "10px 14px", marginBottom: 20, background: "rgba(245,158,11,0.05)", border: "1px solid rgba(245,158,11,0.15)", borderRadius: 7, fontSize: 11, color: "#526b68", display: "flex", gap: 8 }}>
-        <Shield size={14} strokeWidth={1.7} style={{ color: "#f59e0b", flexShrink: 0, marginTop: 1 }} />
-        Demo build using demonstration thresholds only. Not a medical device. If you are experiencing a medical emergency, follow your mission emergency medical procedure immediately.
-      </div>
-
-      {/* Emergency banner — shown if serious symptom selected */}
-      {hasEmergency && (
-        <div style={{ padding: "14px 16px", marginBottom: 20, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 8, display: "flex", gap: 12 }}>
-          <AlertTriangle size={18} strokeWidth={1.7} style={{ color: "#ef4444", flexShrink: 0, marginTop: 1 }} />
-          <div>
-            <p style={{ margin: "0 0 4px", font: "600 13px Manrope", color: "#ef4444" }}>Emergency Symptom Detected</p>
-            <p style={{ margin: 0, fontSize: 12, color: "#a8c5c1", lineHeight: 1.5 }}>
-              You have reported a serious symptom. <strong>Follow your mission emergency medical procedure immediately.</strong> Contact your flight surgeon now. Do not rely on this application to manage an emergency.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Step progress */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 28, flexWrap: "wrap" }}>
-        {STEPS.map((s, i) => (
-          <div key={s} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button
-              onClick={() => i <= step && setStep(i)}
-              style={{
-                display: "flex", alignItems: "center", gap: 7,
-                padding: "6px 12px", borderRadius: 6, border: "1px solid",
-                borderColor: i === step ? "var(--teal)" : i < step ? "#10b98140" : "var(--line)",
-                background: i === step ? "rgba(103,222,214,0.1)" : "transparent",
-                color: i === step ? "var(--teal-bright)" : i < step ? "#10b981" : "var(--muted)",
-                fontSize: 10, fontWeight: 600, cursor: i <= step ? "pointer" : "default",
-                fontFamily: "Manrope", letterSpacing: "0.08em",
-              }}
-            >
-              {i < step && <CheckCircle size={12} strokeWidth={1.7} />}
-              <span>{String(i + 1).padStart(2, "0")} {s}</span>
-            </button>
-            {i < STEPS.length - 1 && (
-              <div style={{ width: 20, height: 1, background: "var(--line)" }} />
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div style={{ maxWidth: 700 }}>
+    <div className={styles.checkinPage}>
+      <header className={styles.pageHeader}>
+        <div><span className="section-kicker">ASTRONAUT PORTAL · {astronaut.callsign}</span><h1>Daily Health Check-In</h1><p>Saturday, 14 November 2026 · {astronaut.name} ({astronaut.callsign})</p></div>
+        <div className={styles.demoNotice}><Shield size={20} /><span>Demo build using demonstration thresholds only. Not a medical device. If you are experiencing a medical emergency, follow your mission emergency medical procedure immediately.</span></div>
+      </header>
+      {hasEmergency && <div style={{ padding: "14px 16px", marginBottom: 20, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 8, display: "flex", gap: 12 }}><AlertTriangle size={18} style={{ color: "#ef4444", flexShrink: 0 }} /><div><strong>Emergency Symptom Detected</strong><p>You have reported a serious symptom. Follow your mission emergency medical procedure immediately. Contact your flight surgeon now.</p></div></div>}
+      <div className={styles.stepper} aria-label="Check-in progress"><div className={styles.stepTrack}>{STEPS.map((label, i) => <div className={`${styles.stepItem} ${i === step ? styles.currentStep : ""} ${i < step ? styles.completedStep : ""}`} key={label}><button type="button" disabled={i > step} onClick={() => setStep(i)} aria-current={i === step ? "step" : undefined}><span className={styles.stepCircle}>{i < step ? <Check size={18} /> : String(i + 1).padStart(2, "0")}</span><span>{label}</span></button>{i < 3 && <span className={`${styles.stepConnector} ${i < step ? styles.connectorDone : ""}`} />}</div>)}</div><div className={styles.progressMeta}><span>Step {step + 1} of 4 — {STEPS[step]}</span><span>{Math.round(((step + 1) / 4) * 100)}%</span></div><div className={styles.progressTrack}><span style={{ width: `${((step + 1) / 4) * 100}%` }} /></div></div>
+      <div className={styles.layout}>
+      <main className={styles.formColumn}>
         {/* ── Step 0: Vitals ── */}
         {step === 0 && (
           <div>
-            <div className="card" style={{ padding: "20px 22px", marginBottom: 16 }}>
+            <div className={`card ${styles.stepCard}`} style={{ padding: "24px", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
                 <div className="vital-icon vital-coral"><Heart size={18} strokeWidth={1.7} /></div>
                 <div>
-                  <span className="section-kicker" style={{ margin: 0 }}>MEASURED VITALS</span>
-                  <p style={{ margin: 0, fontSize: 11, color: "var(--muted)" }}>All fields optional — enter a reading or type a value from a sensor</p>
+                  <h2 className={styles.stepTitle}>Your vitals</h2>
+                  <p className={styles.stepDescription}>Enter today&apos;s numbers. Every field is optional — skip anything you do not have.</p>
                 </div>
               </div>
-              <div className="measurement-source-row" aria-label="Measurement source">
-                <span>Reading source</span>
-                <button type="button" className={form.measurementSource === "MANUAL_ENTRY" ? "measurement-source active" : "measurement-source"} aria-pressed={form.measurementSource === "MANUAL_ENTRY"} onClick={() => set("measurementSource", "MANUAL_ENTRY")}>Manual entry</button>
-                <button type="button" className={form.measurementSource === "WEARABLE" ? "measurement-source active" : "measurement-source"} aria-pressed={form.measurementSource === "WEARABLE"} onClick={() => set("measurementSource", "WEARABLE")}>Sensor reading · enter by hand</button>
-                <button type="button" className="measurement-source unavailable" disabled title="A device model and data connection must be configured first">Connect device · setup needed</button>
+              <div className={styles.sourceGrid} aria-label="Reading source">
+                <span className={styles.sourceLabel}>Reading source</span>
+                <button type="button" className={`${styles.sourceCard} ${form.measurementSource === "MANUAL_ENTRY" ? styles.sourceActive : ""}`} aria-pressed={form.measurementSource === "MANUAL_ENTRY"} onClick={() => set("measurementSource", "MANUAL_ENTRY")}><Activity size={19} /> <span>Manual entry</span></button>
+                <button type="button" className={`${styles.sourceCard} ${form.measurementSource === "WEARABLE" ? styles.sourceActive : ""}`} aria-pressed={form.measurementSource === "WEARABLE"} onClick={() => set("measurementSource", "WEARABLE")}><Heart size={19} /> <span>Sensor reading — enter by hand</span></button>
+                <button type="button" className={`${styles.sourceCard} ${styles.sourceUnavailable}`} disabled title="Not available in this demo — setup needed"><Activity size={19} /> <span>Connect device<small>Not available in this demo — setup needed</small></span></button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 16 }}>
+              <div className={styles.vitalsGrid}>
                 {[
-                  { key: "heartRate",    label: "Heart Rate",    unit: "BPM",   placeholder: "e.g. 72",  hint: "Resting heart rate" },
-                  { key: "systolicBP",   label: "Systolic BP",   unit: "mmHg",  placeholder: "e.g. 120", hint: "Upper BP number" },
-                  { key: "diastolicBP",  label: "Diastolic BP",  unit: "mmHg",  placeholder: "e.g. 80",  hint: "Lower BP number" },
-                  { key: "bodyTemp",     label: "Body Temp",     unit: "°C",    placeholder: "e.g. 36.8",hint: "Oral/ear temperature" },
-                  { key: "oxygenSat",    label: "SpO₂",          unit: "%",     placeholder: "e.g. 98",  hint: "Pulse oximeter reading" },
-                  { key: "bloodGlucose", label: "Blood Glucose", unit: "mg/dL", placeholder: "e.g. 90",  hint: "Fasting or post-meal" },
+                  { key: "heartRate",    label: "Heart rate",    unit: "bpm",   placeholder: "e.g. 72",  hint: "Typical demo range: 60–100 bpm", icon: Heart },
+                  { key: "systolicBP",   label: "Systolic blood pressure",   unit: "mmHg",  placeholder: "e.g. 118", hint: "Demo reference: under 120/80 mmHg", icon: Gauge },
+                  { key: "diastolicBP",  label: "Diastolic blood pressure",  unit: "mmHg",  placeholder: "e.g. 76",  hint: "Demo reference: under 120/80 mmHg", icon: Gauge },
+                  { key: "bodyTemp",     label: "Body temperature",     unit: "°C",    placeholder: "e.g. 36.8",hint: "Typical demo range: 36.5–37.5 °C", icon: Thermometer },
+                  { key: "oxygenSat",    label: "Oxygen saturation",          unit: "%",     placeholder: "e.g. 98",  hint: "Typical demo range: 95–100%", icon: Droplets },
+                  { key: "bloodGlucose", label: "Fasting blood sugar", unit: "mg/dL", placeholder: "e.g. 90",  hint: "Fasting demo range: 70–99 mg/dL", icon: Droplets },
                 ].map((f) => (
-                  <div key={f.key}>
-                    <label style={labelStyle}>
-                      {f.label} <span style={{ color: "#3e5a57", textTransform: "none", fontWeight: 400 }}>({f.unit})</span>
+                  <div key={f.key} className={styles.vitalField}>
+                    <label className={styles.vitalLabel}>
+                      <f.icon size={20} aria-hidden="true" /> <span>{f.label}</span> <span className={styles.unitChip}>{f.unit}</span>
                     </label>
                     <input
                       type="number" step="any"
                       placeholder={f.placeholder}
                       value={String(form[f.key as keyof FormState] ?? "")}
                       onChange={(e) => setStr(f.key, e.target.value)}
-                      style={{ ...inputStyle, borderColor: errors[f.key] ? "rgba(239,68,68,0.5)" : "var(--line)" }}
+                      className={styles.vitalInput}
+                      style={{ borderColor: errors[f.key] ? "rgba(239,68,68,0.5)" : "var(--line)" }}
                     />
                     {errors[f.key] ? (
                       <p style={{ margin: "4px 0 0", fontSize: 10, color: "#ef4444" }}>{errors[f.key]}</p>
                     ) : (
-                      <p style={{ margin: "4px 0 0", fontSize: 10, color: "#3e5a57" }}>{f.hint}</p>
+                      <p className={styles.rangeHint}>{f.hint}</p>
                     )}
                   </div>
                 ))}
@@ -361,8 +327,7 @@ export default function CheckInPage() {
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
                 <div className="vital-icon vital-violet"><Moon size={18} strokeWidth={1.7} /></div>
                 <div>
-                  <span className="section-kicker" style={{ margin: 0 }}>SLEEP & RECOVERY</span>
-                  <p style={{ margin: 0, fontSize: 11, color: "var(--muted)" }}>Self-reported — estimates are fine</p>
+                  <div><h2 className={styles.stepTitle}>Sleep &amp; recovery</h2><p className={styles.stepDescription}>Share how long and how well you slept. Estimates are fine.</p></div>
                 </div>
               </div>
 
@@ -436,10 +401,10 @@ export default function CheckInPage() {
             <div className="card" style={{ padding: "20px 22px", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
                 <div className="vital-icon vital-violet"><Zap size={18} strokeWidth={1.7} /></div>
-                <span className="section-kicker" style={{ margin: 0 }}>MENTAL WELLBEING</span>
+                <h2 className={styles.stepTitle}>Wellbeing</h2>
               </div>
-              <p style={{ margin: "0 0 20px", fontSize: 11, color: "#3e5a57" }}>
-                These are self-reported wellbeing indicators, not psychological diagnoses. All inputs are optional.
+              <p className={styles.stepDescription} style={{ margin: "0 0 20px" }}>
+                Self-reported indicators, not a psychological diagnosis. Every field is optional.
               </p>
 
               {/* Mood */}
@@ -529,9 +494,9 @@ export default function CheckInPage() {
             <div className="card" style={{ padding: "20px 22px", marginBottom: 16 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
                 <div className="vital-icon vital-amber"><Activity size={18} strokeWidth={1.7} /></div>
-                <span className="section-kicker" style={{ margin: 0 }}>SYMPTOMS & CONCERNS</span>
+                <h2 className={styles.stepTitle}>Symptoms</h2>
               </div>
-              <p style={{ margin: "0 0 18px", fontSize: 11, color: "#3e5a57" }}>
+              <p className={styles.stepDescription} style={{ margin: "0 0 18px" }}>
                 Select any symptoms you are experiencing. All fields are optional — only report what is applicable.
               </p>
 
@@ -596,7 +561,7 @@ export default function CheckInPage() {
             </div>
 
             {/* Submit */}
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div className={styles.navRow}>
               <button onClick={() => setStep(step - 1)} style={{
                 display: "flex", alignItems: "center", gap: 7,
                 padding: "10px 18px", border: "1px solid var(--line)", borderRadius: 8,
@@ -604,7 +569,7 @@ export default function CheckInPage() {
               }}>
                 <ArrowLeft size={15} strokeWidth={1.7} /> Back
               </button>
-              <button onClick={handleSubmit} disabled={saving} style={{
+              <button className={styles.nextButton} onClick={handleSubmit} disabled={saving} style={{
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "11px 28px", border: 0, borderRadius: 9,
                 color: "#0c2421", background: saving ? "#4a9e98" : "#8be8df",
@@ -614,153 +579,110 @@ export default function CheckInPage() {
                 {saving ? "Analysing…" : "Submit & Get Assessment"}
                 {!saving && <ArrowRight size={17} strokeWidth={1.7} />}
               </button>
+              <button type="button" className={styles.skipButton} disabled={saving} onClick={handleSubmit}>Skip this step</button>
             </div>
             {saveError && <p style={{ marginTop: 10, fontSize: 11, color: "#ef4444" }}>{saveError}</p>}
           </div>
         )}
+      </main>
+
+        <aside className={styles.summaryPanel}><div className={styles.summaryHeader}><div><span className="section-kicker">LIVE PREVIEW</span><h2>Your check-in so far</h2></div></div><section className={styles.summaryGroup}><h3>Vitals</h3>{[
+          { key: "heartRate", label: "Heart rate", unit: "bpm" }, { key: "systolicBP", label: "Systolic BP", unit: "mmHg" }, { key: "diastolicBP", label: "Diastolic BP", unit: "mmHg" }, { key: "bodyTemp", label: "Body temperature", unit: "°C" }, { key: "oxygenSat", label: "Oxygen saturation", unit: "%" }, { key: "bloodGlucose", label: "Fasting blood sugar", unit: "mg/dL" }
+        ].map(({key,label,unit}) => { const raw=form[key as keyof FormState] as string; const value=raw.trim()?Number(raw):null; const t=DEMO_THRESHOLDS[key]; const red=value!==null&&((t.critMin!==undefined&&value<t.critMin)||(t.critMax!==undefined&&value>t.critMax)); const amber=value!==null&&!red&&((t.warnMin!==undefined&&value<t.warnMin)||(t.warnMax!==undefined&&value>t.warnMax)); const verdict=value===null?"Not entered yet":red?"Outside critical demo range":amber?"Outside normal demo range":"Within normal range"; return <div className={styles.summaryReading} key={key}><div><strong>{label}</strong><span>{value===null?"Not entered yet":`${value} ${unit}`}</span></div><p className={value===null?"":red?styles.redVerdict:amber?styles.amberVerdict:styles.greenVerdict}>{verdict}</p>{red&&<small>Follow mission medical procedure and seek immediate review.</small>}{amber&&<small>Recheck the reading and follow mission guidance.</small>}</div>; })}</section><section className={styles.summaryGroup}><h3>Check-in steps</h3>{STEPS.map((label,i)=><div className={styles.summaryStep} key={label}><span className={i<step?styles.stepCheck:styles.stepPending}>{i<step?<Check size={15}/>:i+1}</span><span>{label}</span><small>{i<step?"Complete":i===step?"In progress":"Up next"}</small></div>)}</section><p className={styles.summaryNote}>Demonstration ranges only. This preview is not a medical assessment.</p></aside>
       </div>
-    </>
+    </div>
   );
 }
 
 // ── Nav row component ─────────────────────────────────────────────────────────
 
-function NavRow({ step, onBack, onNext }: {
-  step: number;
-  onBack: () => void; onNext: () => void;
-}) {
-  return (
-    <div style={{ display: "flex", gap: 10 }}>
-      {step > 0 && (
-        <button onClick={onBack} style={{
-          display: "flex", alignItems: "center", gap: 7,
-          padding: "10px 18px", border: "1px solid var(--line)", borderRadius: 8,
-          background: "transparent", color: "var(--muted)", fontSize: 12, cursor: "pointer",
-        }}>
-          <ArrowLeft size={15} strokeWidth={1.7} /> Back
-        </button>
-      )}
-      <button onClick={onNext} style={{
-        display: "flex", alignItems: "center", gap: 8,
-        padding: "10px 24px", border: 0, borderRadius: 8,
-        color: "#0c2421", background: "#8be8df",
-        fontSize: 12, fontWeight: 700, cursor: "pointer",
-      }}>
-        Next <ArrowRight size={15} strokeWidth={1.7} />
-      </button>
-    </div>
-  );
+function NavRow({ step, onBack, onNext }: { step: number; onBack: () => void; onNext: () => void }) {
+  return <div className={styles.navRow}>{step > 0 && <button type="button" className={styles.backButton} onClick={onBack}><ArrowLeft size={18}/>Back</button>}<button type="button" className={styles.nextButton} onClick={onNext}>Next: {STEPS[step+1] ?? "Continue"}<ArrowRight size={19}/></button>{step > 0 && <button type="button" className={styles.skipButton} onClick={onNext}>Skip this step</button>}</div>;
 }
 
 // ── Assessment result view ────────────────────────────────────────────────────
 
-function AssessmentView({ result, statusColor, onReset }: {
+interface SuggestedTest { id: string; name: string; field?: keyof HealthRecord; unit?: string; }
+
+function AssessmentView({ result, statusColor, astronaut, record, onUpdate, onReset }: {
   result: AssessmentResult;
   statusColor: string;
+  astronaut: ReturnType<typeof useAstronaut>["astronaut"];
+  record: HealthRecord | null;
+  onUpdate: (result: AssessmentResult, record: HealthRecord) => void;
   onReset: () => void;
 }) {
-  const [showDetails, setShowDetails] = useState(false);
-
-  return (
-    <>
-      <div style={{ marginBottom: 24 }}>
-        <span className="section-kicker">CHECK-IN COMPLETE</span>
-        <h1 style={{ margin: 0, font: "500 24px Manrope" }}>Assessment Result</h1>
-      </div>
-
-      {/* Emergency block */}
-      {result.hasEmergency && (
-        <div style={{
-          padding: "16px 18px", marginBottom: 20,
-          background: "rgba(239,68,68,0.1)", border: "2px solid rgba(239,68,68,0.5)",
-          borderRadius: 10,
-        }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-            <AlertTriangle size={22} strokeWidth={1.7} style={{ color: "#ef4444", flexShrink: 0 }} />
-            <div>
-              <p style={{ margin: "0 0 6px", font: "700 15px Manrope", color: "#ef4444" }}>EMERGENCY — Immediate Action Required</p>
-              <p style={{ margin: "0 0 10px", fontSize: 13, color: "#a8c5c1", lineHeight: 1.6 }}>
-                You have reported a serious symptom. <strong style={{ color: "#edf8f8" }}>Follow your mission emergency medical procedure immediately.</strong> Contact your flight surgeon now. Do not rely on this application to manage a medical emergency.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Status card */}
-      <div className="card" style={{
-        padding: "22px 24px", marginBottom: 16,
-        borderColor: `${statusColor}30`,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-          <span className={`status-badge status-${result.status.toLowerCase()}`}>
-            <span style={{ width: 5, height: 5, borderRadius: "50%", background: "currentColor", display: "inline-block" }} />
-            {result.status}
-          </span>
-          <span style={{ fontSize: 11, color: "var(--muted)" }}>
-            Assessment · {new Date().toLocaleString()} · Demo thresholds
-          </span>
-        </div>
-
-        <p style={{ margin: "0 0 12px", font: "500 16px Manrope", color: "#edf8f8" }}>{result.summary}</p>
-
-        {/* Guidance */}
-        <div style={{
-          padding: "11px 14px", marginBottom: 12,
-          background: "rgba(103,222,214,0.05)", border: "1px solid var(--line)",
-          borderRadius: 8, fontSize: 12, color: "#a8c5c1", lineHeight: 1.65,
-        }}>
-          <span style={{ color: "var(--teal)", fontWeight: 600 }}>Recommended next step: </span>
-          {result.guidance}
-        </div>
-
-        {/* Flags */}
-        {result.flags.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-            {result.flags.map((f) => (
-              <span key={f} style={{
-                padding: "2px 8px", background: "rgba(245,158,11,0.08)",
-                border: "1px solid rgba(245,158,11,0.2)", borderRadius: 4,
-                fontSize: 10, color: "#f59e0b",
-              }}>
-                {f.replace(/_/g, " ")}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Expandable details */}
-        <button onClick={() => setShowDetails((v) => !v)} style={{
-          display: "flex", alignItems: "center", gap: 6,
-          padding: 0, border: 0, background: "none",
-          color: "var(--muted)", fontSize: 11, cursor: "pointer",
-        }}>
-          {showDetails ? <ChevronUp size={13} strokeWidth={1.7} /> : <ChevronDown size={13} strokeWidth={1.7} />}
-          {showDetails ? "Hide" : "Show"} assessment details
-        </button>
-
-        {showDetails && result.details && (
-          <div style={{ marginTop: 12, padding: "12px 14px", background: "rgba(0,0,0,0.15)", borderRadius: 7 }}>
-            {result.details.split(" | ").map((line, i) => (
-              <p key={i} style={{ margin: i === 0 ? 0 : "8px 0 0", fontSize: 12, color: "#a8c5c1", lineHeight: 1.6 }}>
-                {line}
-              </p>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Safety disclaimer */}
-      <div style={{ padding: "10px 14px", marginBottom: 20, background: "rgba(245,158,11,0.04)", border: "1px solid rgba(245,158,11,0.12)", borderRadius: 7, fontSize: 11, color: "#526b68", lineHeight: 1.5 }}>
-        ⚠ This assessment uses demonstration thresholds only. It is not a medical diagnosis or clearance. All findings must be reviewed with your flight surgeon. If in doubt, consult your mission medical protocol.
-      </div>
-
-      <button onClick={onReset} style={{
-        padding: "9px 20px", border: "1px solid var(--line)", borderRadius: 7,
-        background: "transparent", color: "var(--muted)", fontSize: 12, cursor: "pointer",
-      }}>
-        ← New Check-In
-      </button>
-    </>
-  );
+  const [testValues, setTestValues] = useState<Record<string,string>>({});
+  const [testTimes, setTestTimes] = useState<Record<string,string>>({});
+  const [analyzing, setAnalyzing] = useState(false);
+  const [updated, setUpdated] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
+  const values = [
+    ["heartRate", record?.heartRate], ["systolicBP", record?.systolicBP], ["diastolicBP", record?.diastolicBP],
+    ["bodyTemp", record?.bodyTemp], ["bloodGlucose", record?.bloodGlucose], ["oxygenSat", record?.oxygenSat],
+  ] as const;
+  const out = values.filter(([key,value]) => {
+    if (value == null) return false;
+    const t=DEMO_THRESHOLDS[key];
+    return (t.warnMin !== undefined && value < t.warnMin) || (t.warnMax !== undefined && value > t.warnMax);
+  }).map(([key])=>key);
+  const symptoms=(record?.symptoms ?? "").toLowerCase();
+  const storedAllergies=(astronaut as typeof astronaut & {allergies?:string[]}).allergies??[];
+  const aspirinAllergy=storedAllergies.some((item)=>item.toLowerCase().includes("aspirin"));
+  const tests: SuggestedTest[]=[];
+  if (record?.heartRate != null) tests.push({id:"heartRate",name:"Re-check heart rate after 15 minutes",field:"heartRate",unit:"bpm"});
+  if (out.includes("systolicBP") || out.includes("diastolicBP")) tests.push({id:"bloodPressure",name:"Re-check blood pressure",field:"systolicBP",unit:"mmHg"});
+  if (out.includes("bodyTemp")) tests.push({id:"temperature",name:"Re-check temperature",field:"bodyTemp",unit:"°C"});
+  if (out.includes("bloodGlucose")) tests.push({id:"glucose",name:"Re-check blood sugar",field:"bloodGlucose",unit:"mg/dL"});
+  if (out.includes("oxygenSat")) tests.push({id:"oxygen",name:"Re-check SpO₂",field:"oxygenSat",unit:"%"});
+  if (/vision|eye/.test(symptoms)) tests.push({id:"eyeScan",name:"Eye scan",unit:"result"});
+  if (/chest pain|chest tightness|chest pressure/.test(symptoms)) tests.push({id:"ecg",name:"ECG",unit:"result"});
+  if (!tests.length) tests.push({id:"repeat",name:"Repeat a vital reading after 15 minutes",unit:"result"});
+  const verdict=result.status==="GREEN"?"All clear":result.status==="AMBER"?"Watch":"Act now";
+  const reason=out.length ? out.length+" reading"+(out.length===1?" is":"s are")+" outside the normal demo range — "+out.map((key)=>DEMO_THRESHOLDS[key].label.toLowerCase()).join(", ")+"." : result.hasEmergency ? "A serious symptom was reported and needs immediate attention." : "The entered readings are within the normal demo ranges.";
+  const actions=result.status==="RED"&&result.hasEmergency
+    ? ["Open the emergency guide and follow its first-aid steps.","Keep the person safe and avoid exertion while reassessing.","Record changes in symptoms and readings.","Contact mission medical support / the flight surgeon as soon as the channel allows."]
+    : result.guidance?.split(/(?<=[.!?])\s+/).filter(Boolean).slice(0,5) ?? (result.status==="RED"
+      ? ["Follow the mission emergency procedure for the reported symptom.","Keep the person safe and avoid exertion while you reassess.","Record any changes in symptoms or readings."]
+      : result.status==="AMBER" ? ["Repeat any reading marked outside the normal demo range.","Note symptoms and how they change over time.","Follow mission medical protocol if concerns persist."]
+      : ["Continue your planned mission routine and check in again as scheduled.","Repeat a reading if you feel different or the value seems unexpected."]);
+  const meaning=result.summary || "The current results are a guide to what may need attention. They do not identify a diagnosis.";
+  const updateResults=async()=>{
+    if(!record)return;
+    const completed=tests.filter(t=>(testValues[t.id]??"").trim());
+    if(!completed.length){setAnalysisError("Enter at least one test result before analyzing.");return;}
+    setAnalyzing(true);setAnalysisError("");
+    const timestamp=new Date().toISOString();
+    const text=completed.map(t=>t.name+": "+testValues[t.id]+(testTimes[t.id]?" at "+testTimes[t.id]:"")).join("; ").slice(0,300);
+    const updatedRecord:HealthRecord={...record,id:"local-"+astronaut.id+"-"+Date.now(),recordedAt:timestamp,notes:[record.notes,"Follow-up tests: "+text].filter(Boolean).join(" | ")};
+    for(const t of completed){const value=Number(testValues[t.id]);if(t.field&&Number.isFinite(value))(updatedRecord[t.field] as number|null)=value;}
+    let next=assessHealth(updatedRecord,astronaut.healthRecords??[]);
+    try{
+      const previous=astronaut.latestAssessment;
+      const response=await fetch("/api/ai/assistant",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        scope:"astronaut",astronautId:astronaut.id,period:"24h",
+        question:"Reassess the full check-in for "+astronaut.name+" ("+astronaut.callsign+") using all original vitals, sleep, wellbeing, symptoms, and these new follow-up results: "+text+". Return an updated verdict, plain-language meaning, up to five next actions, and precautions. Do not diagnose or invent treatment.",
+        demoStates:[{astronautId:astronaut.id,records:[updatedRecord],latestAssessment:previous?{id:previous.id,userId:astronaut.id,status:previous.status,summary:previous.summary,details:previous.details??null,guidance:previous.guidance??null,flags:previous.flags,createdAt:new Date(previous.createdAt).toISOString()}:null,activeAlerts:[]}]
+      })});
+      if(!response.ok)throw new Error("AI analysis is unavailable right now. The entered results were still saved and checked against the demo thresholds.");
+      const ai=await response.json();
+      const status=ai.verdict==="ACT_NOW"?"RED":ai.verdict==="WATCH"?"AMBER":"GREEN";
+      next={status,summary:ai.whatThisCouldMean||ai.summary,details:[...(ai.watchOutFor??[]),ai.whenToGetHelpImmediately,text].filter(Boolean).join(" | "),guidance:(ai.whatToDoNow??[]).slice(0,5).join(" "),flags:result.flags,hasEmergency:result.hasEmergency};
+    }catch(e){setAnalysisError(e instanceof Error?e.message:"AI analysis unavailable; local demo thresholds were applied.");}
+    onUpdate(next,updatedRecord);setUpdated(true);setAnalyzing(false);
+  };
+  return <div className={styles.assessmentPage}>
+    {result.hasEmergency&&<section className={styles.emergencyBanner}><AlertTriangle size={24}/><div><h2>Emergency Symptom Detected</h2><p>A serious symptom was reported. Open the emergency guide and alert mission medical support.</p></div><Link href="/astronaut/emergency">Open emergency guide <ArrowRight size={18}/></Link></section>}
+    <header className={styles.assessmentHeader}><span className="section-kicker">CHECK-IN COMPLETE · {astronaut.callsign}</span><h1>Assessment for {astronaut.name}</h1><p>Simulated demo data · Based on this check-in and available profile history.</p></header>
+    <section className={styles.verdictCard+" "+(result.status==="GREEN"?styles.verdictGreen:result.status==="AMBER"?styles.verdictAmber:styles.verdictRed)} style={{borderColor:statusColor}}><span className={styles.verdictLabel}>{verdict}</span><p>{reason}</p>{updated&&<small>Updated after your new test results — here is what changed.</small>}</section>
+    <div className={styles.resultGrid}>
+      <section className={styles.resultCard}><h2>What this could mean</h2><p>{meaning}</p></section>
+      <section className={styles.resultCard}><h2>What to do right now</h2><ol>{actions.slice(0,5).map((item,i)=><li key={i}>{item}</li>)}</ol></section>
+      <section className={styles.resultCard+" "+styles.testsCard}><h2>Tests we suggest</h2><p>Record tests you can perform with available equipment.</p>{tests.map(t=><div className={styles.testRow} key={t.id}><strong>{t.name}</strong><input aria-label={t.name+" result"} placeholder="Enter result" value={testValues[t.id]??""} onChange={e=>setTestValues(v=>({...v,[t.id]:e.target.value}))}/><input aria-label={t.name+" time"} placeholder="Time (optional)" value={testTimes[t.id]??""} onChange={e=>setTestTimes(v=>({...v,[t.id]:e.target.value}))}/></div>)}<button className={styles.analyzeButton} onClick={updateResults} disabled={analyzing}>{analyzing?"Analyzing…":"Analyze my results"} <ArrowRight size={18}/></button>{analysisError&&<p className={styles.analysisError}>{analysisError}</p>}</section>
+      <section className={styles.resultCard}><h2>Precautions</h2><ul>{(result.details?.split(" | ").filter(Boolean).slice(0,4)??[]).map((item,i)=><li key={i}>{item}</li>)}<li>Avoid strenuous activity if it worsens symptoms and watch for changes.</li></ul></section>
+      <section className={styles.resultCard}><h2>Medicines from the kit</h2><p className={styles.resultMeta}>Illustrative kit list · not verified for this mission: {SAMPLE_MEDICAL_KIT.items.map(item=>item.name+" — "+item.dose).join("; ")}</p><p>{aspirinAllergy?"The stored profile lists an aspirin allergy; do not use aspirin. No medicine in the kit for this — do the physical steps.":storedAllergies.length?"Stored profile allergies: "+storedAllergies.join(", ")+". No medicine is recommended from this illustrative list; continue physical steps.":"No allergy information is stored for this crew profile, so no medicine is recommended. Continue physical steps and confirm allergies with mission medical support."}</p></section>
+      <section className={styles.resultCard}><h2>When to get help immediately</h2><ul><li>Chest pain, difficulty breathing, collapse, loss of consciousness, sudden vision loss, or severe bleeding.</li><li>Any symptom that is severe, worsening, or feels unsafe.</li><li>Contact mission medical support / the flight surgeon as soon as the channel allows.</li></ul></section>
+    </div>
+    <p className={styles.safetyLine}>CrewCare is not a doctor — this is guidance until professional help arrives.</p><button onClick={onReset} className={styles.backToCheckin}>← New Check-In</button>
+  </div>;
 }

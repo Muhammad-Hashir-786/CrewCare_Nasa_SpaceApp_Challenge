@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { ChevronRight, AlertTriangle, Users } from "lucide-react";
-import { DEMO_MISSION } from "@/lib/demo-data";
-import { getAllAlerts, getAstronauts } from "@/lib/db-data";
+import { DEMO_ASTRONAUTS, DEMO_MISSION } from "@/lib/demo-data";
 
 function statusColor(s?: string) {
   if (s === "GREEN") return "#10b981";
@@ -10,9 +9,18 @@ function statusColor(s?: string) {
   return "var(--teal)";
 }
 
-export default async function MissionControlDashboard() {
-  const [astronauts, alerts] = await Promise.all([getAstronauts(), getAllAlerts()]);
-  const activeAlerts = alerts.filter((a) => a.status === "ACTIVE");
+export default function MissionControlDashboard() {
+  // The mission dashboard and /select both use this canonical demo roster.
+  // Keeping it synchronous prevents an empty database from producing a false
+  // zero-crew state or a flash of empty summary counts while the page loads.
+  const astronauts = DEMO_ASTRONAUTS.map((member) => ({ ...member, isSimulated: true }));
+  const activeAlerts = astronauts.flatMap((member) => (member.activeAlerts ?? [])
+    .filter((alert) => alert.status === "ACTIVE")
+    .map((alert) => ({ ...alert, astronaut: member })))
+    .sort((a, b) => {
+      const urgency = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 } as const;
+      return urgency[a.severity] - urgency[b.severity] || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
   const needsAttention = astronauts.filter(
     (a) => a.latestAssessment?.status === "AMBER" || a.latestAssessment?.status === "RED"
   );
@@ -149,8 +157,7 @@ export default async function MissionControlDashboard() {
             </Link>
           </div>
           <div style={{ display: "grid", gap: 10 }}>
-            {alerts.slice(0, 5).map((alert) => {
-              const aAstro = astronauts.find((x) => x.id === alert.userId);
+            {activeAlerts.slice(0, 5).map((alert) => {
               const bc = alert.severity === "HIGH" || alert.severity === "CRITICAL" ? "#ef4444"
                 : alert.severity === "MEDIUM" ? "#f59e0b" : "#10b981";
               return (
@@ -158,13 +165,14 @@ export default async function MissionControlDashboard() {
                   <div style={{ display: "flex", gap: 6, marginBottom: 5, flexWrap: "wrap", alignItems: "center" }}>
                     <span className={`status-badge status-${alert.severity.toLowerCase()}`} style={{ fontSize: 9 }}>{alert.severity}</span>
                     <span className={`status-badge status-${alert.status.toLowerCase()}`} style={{ fontSize: 9 }}>{alert.status}</span>
-                    {aAstro && <span style={{ fontSize: 10, color: "var(--teal)", fontWeight: 600 }}>{aAstro.callsign}</span>}
+                    <span style={{ fontSize: 10, color: "var(--teal)", fontWeight: 600 }}>{alert.astronaut.callsign}</span>
                   </div>
                   <p style={{ margin: "0 0 3px", fontSize: 12, fontWeight: 600, color: "#edf8f8" }}>{alert.title}</p>
                   <p style={{ margin: 0, fontSize: 11, color: "var(--muted)", lineHeight: 1.4 }}>{alert.message}</p>
                 </article>
               );
             })}
+            {activeAlerts.length === 0 && <div className="card" style={{ padding: "14px 13px", color: "var(--muted)", fontSize: 12 }}>No active alerts — all clear.</div>}
           </div>
 
           {/* Disclaimer */}
