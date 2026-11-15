@@ -26,7 +26,15 @@ type ChatMessage = { role: "user" | "assistant"; text: string; answer?: Review; 
 
 const periodDays: Record<Exclude<Period, "mission">, number> = { "24h": 1, "7d": 7, "30d": 30, "90d": 90 };
 const prompts = ["How am I doing today?", "What changed this week?", "Explain my latest assessment", "How is my sleep compared with baseline?"];
-const readout = (value: unknown) => typeof value === "string" ? value.replace(/\b(?:rec|ast|asmnt)-[\w-]+\b/gi, "health record").replace(/\s+/g, " ").trim() : "";
+const readout = (value: unknown) => typeof value === "string" ? value
+  .replace(/\b(?:rec|ast|asmnt|alert)-[\w-]+\b/gi, "health record")
+  .replace(/\bPHASE\s*[34]\b/gi, "earlier review")
+  .replace(/\bRETRIEVED\b/gi, "recorded")
+  .replace(/\bdeterministic\b/gi, "guided")
+  .replace(/\bstatistical deviation\b/gi, "unusual reading")
+  .replace(/\bSD\b/gi, "")
+  .replace(/\bmedian\b/gi, "usual midpoint")
+  .replace(/\s+/g, " ").trim() : "";
 const dateLabel = (date: Date | string) => new Date(date).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 const statusText = (verdict?: Review["verdict"]) => verdict === "ACT_NOW" ? "Act now" : verdict === "WATCH" ? "Watch" : "All clear";
 
@@ -91,13 +99,13 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
     else setMessages((items) => [...items, { role: "user", text: displayText }]);
     setQuestion("");
     try {
-      const history = activeMessages.map((message) => ({ role: message.role, text: message.role === "assistant" && message.answer ? `Verdict: ${statusText(message.answer.verdict)}. What this could mean: ${readout(message.answer.whatThisCouldMean)}. What to do right now: ${(message.answer.whatToDoNow ?? []).map((step, i) => `${i + 1}. ${readout(step)}`).join(" ")}. Watch out for: ${(message.answer.watchOutFor ?? []).map(readout).join(" ")}. When to get help immediately: ${readout(message.answer.whenToGetHelpImmediately)}.`.slice(0, 4000) : message.text })).slice(-100);
+      const history = activeMessages.map((message) => ({ role: message.role, text: message.role === "assistant" && message.answer ? `Verdict: ${statusText(message.answer.verdict)}. What this could mean: ${readout(message.answer.whatThisCouldMean)}. What to do right now: ${(message.answer.whatToDoNow ?? []).map((step, i) => `${i + 1}. ${readout(step)}`).join(" ")}. Watch out for: ${(message.answer.watchOutFor ?? []).map(readout).join(" ")}. When to get help immediately: ${readout(message.answer.whenToGetHelpImmediately)}.`.slice(0, 4000) : readout(message.text) })).slice(-100);
       const response = await fetch("/api/ai/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: "astronaut", astronautId: astronaut.id, question: `${text.slice(0, 500)}. Use only supplied data, do not invent details or mention IDs. ${promptContext}`.slice(0, 1000), period, conversationHistory: history, demoStates: [{ astronautId: astronaut.id, records: records.map((r) => ({ ...r, recordedAt: new Date(r.recordedAt).toISOString() })), latestAssessment: astronaut.latestAssessment ? { ...astronaut.latestAssessment, createdAt: new Date(astronaut.latestAssessment.createdAt).toISOString() } : null, activeAlerts: (astronaut.activeAlerts ?? []).filter((a) => a.status === "ACTIVE").map((a) => ({ ...a, createdAt: new Date(a.createdAt).toISOString(), acknowledgedAt: a.acknowledgedAt ? new Date(a.acknowledgedAt).toISOString() : null, acknowledgedBy: a.acknowledgedBy ?? null, metric: a.metric ?? null, value: a.value ?? null, threshold: a.threshold ?? null })) }] }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "The assistant could not answer right now.");
       const a = data.analysis as Review;
       const source = latest ? `Using ${astronaut.name}'s latest check-in (${dateLabel(latest.recordedAt)})${latest.heartRate != null ? `: heart rate ${latest.heartRate} bpm` : ""}${latest.systolicBP != null && latest.diastolicBP != null ? `, blood pressure ${latest.systolicBP}/${latest.diastolicBP}` : ""}${latest.oxygenSat != null ? `, oxygen ${latest.oxygenSat}%` : ""}.` : `No stored check-in is available for ${astronaut.name}.`;
-      setMessages((items) => [...(chatOwner === astronaut.id ? items : [{ role: "user" as const, text: displayText }]), { role: "assistant", text: readout(a.summary) || "No answer text was returned.", answer: a, dataUsed: source }]);
+      setMessages((items) => [...(chatOwner === astronaut.id ? items : [{ role: "user" as const, text: readout(displayText) }]), { role: "assistant", text: readout(a.summary) || "No answer text was returned.", answer: a, dataUsed: readout(source) }]);
     } catch (error) { setChatError(error instanceof Error ? error.message : "The assistant could not answer right now."); }
     finally { setChatLoading(false); }
   };
@@ -172,15 +180,15 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
       <SectionTitle title="Ask a follow-up" subtitle="Questions use the same CrewCare AI assistant and this astronaut’s available records." />
       <div className={`${styles.card} ${styles.chat}`}>
         <div className={styles.chips}>{prompts.map((prompt) => <button key={prompt} type="button" onClick={() => void ask(prompt)} disabled={chatLoading}>{prompt}</button>)}</div>
-        {activeMessages.map((message, index) => <div className={message.role === "user" ? styles.userBubble : styles.answerBubble} key={`${message.role}-${index}`}><span>{message.role === "user" ? "You" : "CrewCare AI"}</span>{message.role === "user" ? <p>{message.text}</p> : message.answer ? <div>
+        {activeMessages.map((message, index) => <div className={message.role === "user" ? styles.userBubble : styles.answerBubble} key={`${message.role}-${index}`}><span>{message.role === "user" ? "You" : "CrewCare AI"}</span>{message.role === "user" ? <p>{readout(message.text)}</p> : message.answer ? <div>
           <span className={`${styles.verdict} ${styles[(message.answer.verdict ?? "ALL_CLEAR").toLowerCase()]}`}><span className={styles.dot}/>{statusText(message.answer.verdict)}</span>
-          <p className={styles.meta}>{message.dataUsed}</p>
+          <p className={styles.meta}>{readout(message.dataUsed)}</p>
           <section className={styles.chatAnswerSection}><h3>What this could mean</h3><p>{readout(message.answer.whatThisCouldMean ?? message.answer.summary)}</p></section>
           <section className={styles.chatAnswerSection}><h3>What to do right now</h3><ol>{(message.answer.whatToDoNow ?? []).slice(0, 5).map((step, i) => <li key={i}>{readout(step)}</li>)}</ol></section>
           <section className={styles.chatAnswerSection}><h3>Watch out for</h3><ul>{(message.answer.watchOutFor ?? []).map((item, i) => <li key={i}>{readout(item)}</li>)}</ul></section>
           <section className={styles.chatAnswerSection}><h3>When to get help immediately</h3><p>{readout(message.answer.whenToGetHelpImmediately)}</p></section>
           <div className={styles.chips}>{["What if it gets worse?", "Explain it simpler", "Show the steps again"].map((chip) => { const topic = activeMessages.filter((entry) => entry.role === "user").at(-1)?.text ?? "the health concern just discussed"; const instruction = chip === "What if it gets worse?" ? `Explain what worsening of this same concern (${topic}) would look like and restate its warning signs.` : chip === "Explain it simpler" ? `Re-explain your immediately previous answer about the same concern (${topic}) in simpler, shorter words.` : `Repeat the same numbered guidance from your immediately previous answer about the concern (${topic}).`; return <button key={chip} type="button" onClick={() => void ask(chip, instruction)} disabled={chatLoading}>{chip}</button>; })}</div>
-        </div> : <p>{message.text}</p>}</div>)}
+        </div> : <p>{readout(message.text)}</p>}</div>)}
         {chatLoading && <p role="status" className={styles.inlineNote}>CrewCare AI is considering your question and the conversation so far…</p>}
         <div className={styles.chatSessionControls}><button type="button" className={styles.textButton} onClick={clearConversation}>New conversation</button><span>This conversation is kept while you stay on this page.</span></div>
         {chatError && <p role="alert" className={styles.inlineNote}>{chatError}</p>}

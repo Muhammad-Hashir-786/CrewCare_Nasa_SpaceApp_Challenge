@@ -1,0 +1,37 @@
+.scene{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;overflow:hidden;padding:24px;background:radial-gradient(ellipse at 50% 46%,#0d2926 0%,#071614 42%,#030908 100%);color:#f1fbf9;animation:sceneIn .45s ease both}
+.scene:before{position:absolute;inset:0;content:"";pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 20%,rgba(0,0,0,.32) 100%)}
+.stars{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.stars i{position:absolute;left:var(--x);top:var(--y);width:3px;height:3px;border-radius:50%;background:#9bf8ed;opacity:.3;box-shadow:0 0 10px rgba(103,222,214,.55);animation:drift var(--duration) ease-in-out var(--delay) infinite alternate}
+.stars i:nth-child(3n){width:2px;height:2px;opacity:.2}.stars i:nth-child(5n){width:4px;height:4px;opacity:.14}
+.content{position:relative;z-index:1;display:flex;align-items:center;flex-direction:column;width:min(720px,100%);text-align:center}
+.eyebrow{display:flex;align-items:center;gap:9px;margin-bottom:21px;padding:8px 13px;border:1px solid rgba(103,222,214,.2);border-radius:99px;background:rgba(7,25,23,.62);color:#a1c1bc;font:700 10px/1.2 Manrope,system-ui,sans-serif;letter-spacing:.13em}
+.eyebrow span{width:6px;height:6px;border-radius:50%;background:#67ded6;box-shadow:0 0 10px rgba(103,222,214,.5)}
+.agent{position:relative;display:grid;place-items:center;width:202px;height:202px;padding:0;border:0;border-radius:50%;background:transparent;cursor:pointer;animation:agentArrive .85s cubic-bezier(.18,.8,.25,1) both,agentFloat 4.2s ease-in-out .85s infinite}
+.agent svg{position:relative;z-index:1;width:144px;height:144px;overflow:visible;filter:drop-shadow(0 0 22px rgba(85,224,208,.24))}
+.face{fill:#0d2624;stroke:#5bd5c8;stroke-width:2}.cap{fill:#123b37;stroke:#71e1d5;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}.cross{fill:none;stroke:#a3fff2;stroke-width:3;stroke-linecap:round}.eye{fill:#c2fff7}.smile,.stethoscope{fill:none;stroke:#75ded2;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}.stethoscopeHead{fill:#103a35;stroke:#8af6e9;stroke-width:2.2}.wave{fill:none;stroke:#8af6e9;stroke-width:3;stroke-linecap:round;opacity:0;transform-origin:103px 52px}
+.agent:hover{filter:brightness(1.08)}.agent:focus-visible{outline:2px solid #67ded6;outline-offset:9px}
+.ring{position:absolute;border:1px solid rgba(103,222,214,.36);border-radius:50%;animation:ringPulse 3s ease-in-out infinite}.ringOne{inset:11px}.ringTwo{inset:-7px;opacity:.62;animation-delay:1.4s}
+.waving .wave{animation:waveHello .8s ease-in-out 2}
+.waveLabel{position:absolute;right:3px;top:22px;padding:6px 10px;border:1px solid rgba(103,222,214,.28);border-radius:99px;color:#a3fff2;background:#0d2624;font:700 12px Manrope;animation:waveLabel .22s ease both}
+.agentName{margin:2px 0 14px;color:#70e3d8;font:700 11px Manrope,system-ui,sans-serif;letter-spacing:.17em}.agentName span{color:#91aaa6;font-size:9px;letter-spacing:.1em}
+.copy h1{display:grid;gap:6px;margin:0;font:750 clamp(30px,5vw,52px)/1.12 Manrope,system-ui,sans-serif;letter-spacing:-.035em}
+.copy h1 span{animation:lineIn .55s cubic-bezier(.18,.8,.25,1) both}.copy h1 span+span{animation-delay:.38s;color:#67ded6;font-size:clamp(23px,3.7vw,39px)}
+.copy>p{margin:15px 0 0;color:#adc6c2;font:400 clamp(14px,2vw,17px)/1.55 "DM Sans",system-ui,sans-serif;animation:lineIn .55s ease .72s both}
+.greeting{min-height:22px;margin-top:13px;color:#80a9a4;font:500 13px/1.5 "DM Sans",system-ui,sans-serif;animation:lineIn .55s ease .92s both}
+.actions{display:flex;align-items:center;justify-content:center;gap:11px;flex-wrap:wrap;margin-top:22px;animation:lineIn .55s ease 1s both}
+.enter,.skip,.mute{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:46px;border-radius:999px;cursor:pointer;font:650 14px Manrope,system-ui,sans-serif;transition:transform .18s ease,border-color .18s ease,background .18s ease}
+.enter{padding:0 22px;border:1px solid #67ded6;background:#67ded6;color:#06201d;box-shadow:0 8px 30px rgba(46,196,177,.15)}.enter:hover{transform:translateY(-2px);background:#8aece3}
+.skip{padding:0 17px;border:1px solid rgba(142,185,179,.3);background:rgba(8,24,22,.55);color:#c4d9d5}.skip:hover,.mute:hover{border-color:rgba(103,222,214,.6);background:rgba(103,222,214,.08)}
+.mute{padding:0 13px;border:1px solid rgba(103,222,214,.2);background:transparent;color:#9dbbb6;font-size:12px}
+.speechNote{margin:12px 0 0;color:#8fa9a5;font:400 12px "DM Sans",system-ui,sans-serif;animation:lineIn .3s ease both}
+.leaving{animation:sceneOut .45s ease both;pointer-events:none}
+@keyframes sceneIn{from{opacity:0}to{opacity:1}}@keyframes sceneOut{to{opacity:0;visibility:hidden}}
+@keyframes agentArrive{from{opacity:0;transform:scale(.58) translateY(24px)}to{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes agentFloat{50%{translate:0 -5px}}
+@keyframes ringPulse{0%,100%{transform:scale(.96);opacity:.32;box-shadow:0 0 0 0 rgba(103,222,214,.06)}50%{transform:scale(1.035);opacity:.78;box-shadow:0 0 25px 2px rgba(103,222,214,.1)}}
+@keyframes lineIn{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:translateY(0)}}
+@keyframes drift{from{transform:translate3d(-5px,5px,0);opacity:.12}to{transform:translate3d(12px,-14px,0);opacity:.46}}
+@keyframes waveHello{0%,100%{opacity:0;transform:rotate(0)}25%,75%{opacity:1}50%{opacity:1;transform:rotate(18deg)}}
+@keyframes waveLabel{from{opacity:0;transform:translateY(4px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(max-width:520px){.scene{padding:20px}.content{max-width:440px}.eyebrow{font-size:9px;margin-bottom:13px}.agent{width:174px;height:174px}.agent svg{width:128px;height:128px}.copy h1{font-size:34px}.copy h1 span+span{font-size:25px}.copy>p{max-width:320px}.greeting{max-width:330px}.actions{gap:8px}.enter{min-width:172px}.mute{min-width:105px}}
+@media(prefers-reduced-motion:reduce){.scene,.agent,.ring,.stars i,.copy h1 span,.copy>p,.greeting,.actions,.speechNote{animation:none!important}.agent{opacity:1;transform:none}}

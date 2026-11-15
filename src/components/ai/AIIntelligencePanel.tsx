@@ -23,7 +23,33 @@ type RecommendationState = "NEW" | "ACKNOWLEDGED" | "IN_PROGRESS" | "RESOLVED" |
 const surface: React.CSSProperties = { padding: 18, marginBottom: 14 };
 const btnStyle: React.CSSProperties = { background: "rgba(103,222,214,.09)", color: "var(--teal-bright)", border: "1px solid var(--line)", borderRadius: 7, padding: "9px 13px", fontSize: 11, fontWeight: 600, cursor: "pointer" };
 const pct = (value: number | null) => value == null ? "—" : `${value > 0 ? "+" : ""}${value}%`;
-const redactRecordIds = (value: string) => value.replace(/\b(?:rec|ast|asmnt|alert)-[\w-]+\b/gi, "health record");
+const cleanDisplayText = (value: string) => value
+  .replace(/\b(?:rec|ast|asmnt|alert)-[\w-]+\b/gi, "health record")
+  .replace(/\bPHASE\s*[34]\b/gi, "earlier review")
+  .replace(/\bRETRIEVED\b/gi, "recorded")
+  .replace(/\bdeterministic\b/gi, "guided")
+  .replace(/\bstatistical deviation\b/gi, "unusual reading")
+  .replace(/\bSD\b/gi, "")
+  .replace(/\bmedian\b/gi, "usual midpoint");
+
+function evidenceReadings(item: Evidence): string[] {
+  if (item.kind !== "record") return [];
+  try {
+    const record = JSON.parse(item.detail) as Record<string, unknown>;
+    const date = item.timestamp ? new Date(item.timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "date unavailable";
+    const readings: Array<[string, unknown, string]> = [
+      ["Heart rate", record.heartRateBpm, "BPM"], ["Blood pressure", record.bloodPressureMmHg, "mmHg"],
+      ["Body temperature", record.temperatureC, "°C"], ["Blood sugar", record.glucoseMgDl, "mg/dL"],
+      ["SpO₂", record.oxygenPercent, "%"], ["Sleep", record.sleepHours, "hours"],
+      ["Sleep quality", record.sleepQuality1to5, "/5"], ["Stress", record.stress1to5, "/5"],
+      ["Anxiety", record.anxiety1to5, "/5"], ["Mood", record.mood, ""],
+      ["Fatigue", record.fatigue, ""], ["Symptoms", record.symptoms, ""],
+    ];
+    return readings.flatMap(([label, value, unit]) => value == null || value === "" ? [] : [`${label} ${value}${unit === "/5" ? unit : unit ? ` ${unit}` : ""} on ${date}`]);
+  } catch { return []; }
+}
+
+const periodLabel = (period: Period) => period === "mission" ? "this mission" : `the last ${period === "24h" ? "24 hours" : period}`;
 
 export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astronautId?: string }) {
   const [period, setPeriod] = useState<Period>("30d");
@@ -49,7 +75,7 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
   const activeContext = context?.period === period && context.scope === scope && (scope === "mission" || context.subjects[0]?.id === astronautId) ? context : null;
   const demoOwner = `${scope}:${astronautId ?? "mission"}`;
   const activeDemoStates = useMemo(() => loadedDemoOwner === demoOwner ? demoStates : [], [loadedDemoOwner, demoOwner, demoStates]);
-  const visibleText = (value: string) => scope === "mission" ? redactRecordIds(value).replace(/\bPHASE\s*[34]\b/gi, "earlier review").replace(/\bRETRIEVED\b/gi, "provided").replace(/\bdeterministic\b/gi, "rule-based").replace(/\bSD\b/gi, "").replace(/\bmedian\b/gi, "usual midpoint") : value;
+  const visibleText = cleanDisplayText;
 
   useEffect(() => {
     if (scope !== "mission" || !activeContext || activeContext.subjects.length === 0) return;
@@ -157,12 +183,12 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
   const aiChatCard = (
     <section className={`card ${scope === "mission" ? missionStyles.aiChatCard : ""}`} style={surface}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}>{scope === "mission" && <span className={missionStyles.chatAvatar}><Bot size={28}/></span>}<h2 className={scope === "mission" ? missionStyles.chatTitle : "section-kicker"} style={{ margin: 0 }}>{scope === "mission" ? "Ask CrewCare AI" : "ASK CREW CARE AI"}</h2></div><div style={{ display: "flex", gap: 7 }}><select aria-label="Conversation history" value={currentConversation?.id ?? ""} onChange={(event) => setConversationId(event.target.value)} style={{ background: "#0d201e", color: "#c3d5d2", border: "1px solid var(--line)", borderRadius: 6, fontSize: 10, padding: "6px 8px", maxWidth: 165 }}><option value="">New conversation</option>{activeConversations.map((conversation) => <option key={conversation.id} value={conversation.id}>{conversation.title}</option>)}</select><button onClick={newConversation} style={btnStyle}>{scope === "mission" ? "New conversation" : "New chat"}</button>{currentConversation && <button onClick={deleteConversation} style={{ ...btnStyle, color: "#eaa" }}>Delete</button>}</div></div>
-      <p style={{ color: "var(--muted)", fontSize: 10, lineHeight: 1.5, margin: "0 0 12px" }}>{scope === "mission" ? "Ask about any crew member’s health — answers use the crew’s real readings and trends." : "Questions are answered from this page’s retrieved records and analysis."}</p>
+      <p style={{ color: "var(--muted)", fontSize: 10, lineHeight: 1.5, margin: "0 0 12px" }}>{scope === "mission" ? "Ask about any crew member’s health — answers use the crew’s real readings and trends." : "Questions are answered from this page’s recorded data and analysis."}</p>
 
       <div className={scope === "mission" ? missionStyles.chatThread : undefined} aria-live="polite" style={{ maxHeight: 470, overflow: "auto", marginBottom: 12 }}>{currentConversation?.messages.map((message) => <article key={message.id} style={{ borderTop: "1px solid var(--line)", padding: "11px 0" }}>
         {message.role === "user" ? <p style={{ margin: 0, fontSize: 11, color: "var(--teal-bright)" }}>You · {new Date(message.timestamp).toLocaleString()}<br/><span style={{ color: "#c3d5d2" }}>{visibleText(message.text)}</span></p> : message.answer ? <div>{scope === "astronaut" && <p style={{ margin: "0 0 5px", fontSize: 10, color: "var(--muted)" }}>{visibleText(message.answer.analysis.title)} · {message.answer.provider} / {message.answer.model} · {new Date(message.timestamp).toLocaleString()}</p>}
           <span style={{ display: "inline-flex", border: `1px solid ${message.answer.analysis.verdict === "ACT_NOW" ? "#ef4444" : message.answer.analysis.verdict === "WATCH" ? "#f59e0b" : "#10b981"}`, color: message.answer.analysis.verdict === "ACT_NOW" ? "#ff8585" : message.answer.analysis.verdict === "WATCH" ? "#f4c65f" : "#65dfb4", borderRadius: 999, padding: "7px 12px", fontWeight: 800 }}>{message.answer.analysis.verdict === "ACT_NOW" ? "Act now" : message.answer.analysis.verdict === "WATCH" ? "Watch" : "All clear"}</span>
-          {message.answer.criticalAlerts.map((alert) => <div key={alert.id} style={{ padding: "9px 10px", border: "1px solid rgba(239,68,68,.45)", borderRadius: 6, color: "#ffb4b4", fontSize: 11, margin: "8px 0" }}><AlertTriangle size={13} style={{ verticalAlign: "middle", marginRight: 6 }}/>{alert.severity} {scope === "mission" ? "alert" : "Phase 3 alert"}: {visibleText(alert.title)}. Follow established mission emergency procedures and contact authorized medical personnel. {visibleText(alert.message)}</div>)}
+          {message.answer.criticalAlerts.map((alert) => <div key={alert.id} style={{ padding: "9px 10px", border: "1px solid rgba(239,68,68,.45)", borderRadius: 6, color: "#ffb4b4", fontSize: 11, margin: "8px 0" }}><AlertTriangle size={13} style={{ verticalAlign: "middle", marginRight: 6 }}/>{visibleText(alert.severity)} health alert: {visibleText(alert.title)}. Follow established mission emergency procedures and contact authorized medical personnel. {visibleText(alert.message)}</div>)}
           <section><h3 style={{ fontSize: 15, margin: "14px 0 5px" }}>What this could mean</h3><p style={{ color: "#d5e6e3", fontSize: 14, lineHeight: 1.55, margin: 0 }}>{visibleText(message.answer.analysis.whatThisCouldMean)}</p></section>
           <section><h3 style={{ fontSize: 15, margin: "14px 0 5px" }}>What to do right now</h3><ol style={{ color: "#d5e6e3", fontSize: 14, lineHeight: 1.55 }}>{message.answer.analysis.whatToDoNow.map((step, i) => <li key={i}>{visibleText(step)}</li>)}</ol></section>
           <section><h3 style={{ fontSize: 15, margin: "14px 0 5px" }}>Watch out for</h3><ul style={{ color: "#d5e6e3", fontSize: 14, lineHeight: 1.55 }}>{message.answer.analysis.watchOutFor.map((item, i) => <li key={i}>{visibleText(item)}</li>)}</ul></section>
@@ -194,9 +220,9 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
     {scope === "mission" && <MissionLegend/>}
     {scope === "mission" && <MissionStatusBoard subjects={activeContext?.subjects ?? []}/>}
 
-    {scope === "astronaut" && subjects[0] && <section className="agent-welcome" aria-label="Retrieved health context summary">
+    {scope === "astronaut" && subjects[0] && <section className="agent-welcome" aria-label="Health review summary">
       <div className="agent-welcome-orb" aria-hidden="true"><span/></div>
-      <div><span className="section-kicker">CREW CARE MEDICAL ASSISTANT · RETRIEVED CONTEXT</span><h2>Welcome, {subjects[0].callsign}.</h2><p>{subjects[0].latestAssessment ? `Your latest deterministic assessment is ${subjects[0].latestAssessment.status}: ${subjects[0].latestAssessment.summary}` : "No assessment is available yet."} Retrieved {subjects[0].recordsInPeriod} health records for this period and {subjects[0].activeAlerts.length} active alerts. This is a data summary, not an AI-generated interpretation. Ask a question below for evidence-linked analysis{activeContext?.healthDataIsSimulated ? "; this profile uses simulated data." : "."}</p></div>
+      <div><span className="section-kicker">CREWCARE · HEALTH REVIEW</span><h2>Ultimate review</h2><p>{subjects[0].latestAssessment ? `Your latest assessment is ${subjects[0].latestAssessment.status}: ${visibleText(subjects[0].latestAssessment.summary)}` : "No assessment is available yet."} This review uses {subjects[0].recordsInPeriod} recorded health records for this period and {subjects[0].activeAlerts.length} active alerts. Ask a question below for evidence-linked analysis{activeContext?.healthDataIsSimulated ? "; this profile uses simulated data." : "."}</p></div>
     </section>}
 
     <div className={`card ${scope === "mission" ? missionStyles.periodCard : ""}`} style={{ ...surface, borderColor: "rgba(103,222,214,.22)" }}>
@@ -211,20 +237,20 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
     {scope === "mission" && <MissionEvaluation context={activeContext} answer={missionEvaluation} loading={missionEvaluationLoading} error={missionEvaluationError} period={period}/>}
 
     {scope === "astronaut" && subjects.map((subject) => <section className="card" key={subject.id} style={surface}>
-      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}><div><p className="section-kicker" style={{ margin: "0 0 4px" }}>PHASE 3 DETERMINISTIC STATUS</p><strong style={{ color: subject.latestAssessment?.status === "RED" ? "#ef4444" : subject.latestAssessment?.status === "AMBER" ? "#f59e0b" : "#10b981" }}>{subject.latestAssessment?.status ?? "NOT AVAILABLE"}</strong><p style={{ color: "#a8c5c1", fontSize: 11, margin: "6px 0" }}>{subject.latestAssessment?.summary ?? "No assessment is available."}</p></div><div style={{ minWidth: 190 }}><p className="section-kicker" style={{ margin: "0 0 5px" }}>LATEST CHECK-IN</p><p style={{ fontSize: 11, color: "#a8c5c1", margin: 0 }}>{subject.currentMeasurements?.recordedAt ? new Date(String(subject.currentMeasurements.recordedAt)).toLocaleString() : "No current record"}</p><p style={{ fontSize: 10, color: "var(--muted)", margin: "4px 0" }}>{subject.recordsInPeriod} records in selected period</p></div></div>
-      {subject.activeAlerts.map((alert) => <div key={alert.id} style={{ padding: "8px 10px", borderLeft: "2px solid #ef4444", background: "rgba(239,68,68,.06)", marginTop: 10, fontSize: 11 }}><strong>{alert.severity} · {alert.title}</strong><p style={{ color: "#a8c5c1", margin: "4px 0 0" }}>{alert.message}</p></div>)}
+      <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}><div><p className="section-kicker" style={{ margin: "0 0 4px" }}>ULTIMATE REVIEW</p><strong style={{ color: subject.latestAssessment?.status === "RED" ? "#ef4444" : subject.latestAssessment?.status === "AMBER" ? "#f59e0b" : "#10b981" }}>{subject.latestAssessment?.status ?? "NOT AVAILABLE"}</strong><p style={{ color: "#a8c5c1", fontSize: 11, margin: "6px 0" }}>{visibleText(subject.latestAssessment?.summary ?? "No assessment is available.")}</p></div><div style={{ minWidth: 190 }}><p className="section-kicker" style={{ margin: "0 0 5px" }}>LATEST CHECK-IN</p><p style={{ fontSize: 11, color: "#a8c5c1", margin: 0 }}>{subject.currentMeasurements?.recordedAt ? new Date(String(subject.currentMeasurements.recordedAt)).toLocaleString() : "No current record"}</p><p style={{ fontSize: 10, color: "var(--muted)", margin: "4px 0" }}>{subject.recordsInPeriod} records in selected period</p></div></div>
+      {subject.activeAlerts.map((alert) => <div key={alert.id} style={{ padding: "8px 10px", borderLeft: "2px solid #ef4444", background: "rgba(239,68,68,.06)", marginTop: 10, fontSize: 11 }}><strong>{visibleText(alert.severity)} · {visibleText(alert.title)}</strong><p style={{ color: "#a8c5c1", margin: "4px 0 0" }}>{visibleText(alert.message)}</p></div>)}
     </section>)}
 
     {scope === "astronaut" && subjects.map((subject) => <section key={`signals-${subject.id}`} style={{ marginBottom: 18 }}>
       <h2 className="section-kicker" style={{ margin: "0 0 9px" }}>Personal trends</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 9 }}>{subject.baselines.filter((baseline) => ["heartRate","sleepDuration","sleepQuality","stressLevel","anxietyLevel"].includes(baseline.indicator)).map((baseline) => <div className="card" key={baseline.indicator} style={{ padding: 12 }}><span className="section-kicker">{baseline.label.toUpperCase()}</span><strong style={{ display: "block", fontSize: 14, marginTop: 5 }}>{baseline.sufficient ? `${baseline.mean} ${baseline.unit}` : "Insufficient data"}</strong><small style={{ display: "block", color: "var(--muted)", fontSize: 9, marginTop: 4 }}>{baseline.sufficient ? `Range ${baseline.minimum}–${baseline.maximum} · ${baseline.count} records` : `${baseline.count} observations`}</small></div>)}</div>
-      {subject.patterns.length > 0 && <div className="card" style={{ ...surface, marginTop: 10, marginBottom: 0 }}><span className="section-kicker">What stands out</span>{subject.patterns.slice(0,3).map((pattern,index) => <p key={`${pattern.category}-${index}`} style={{ color: "#a8c5c1", fontSize: 11, lineHeight: 1.5, margin: "7px 0 0" }}>{pattern.explanation} <a href="#evidence" style={{ color: "var(--teal)" }}>View evidence</a></p>)}</div>}
+      {subject.patterns.length > 0 && <div className="card" style={{ ...surface, marginTop: 10, marginBottom: 0 }}><span className="section-kicker">What stands out</span>{subject.patterns.slice(0,3).map((pattern,index) => <p key={`${pattern.category}-${index}`} style={{ color: "#a8c5c1", fontSize: 11, lineHeight: 1.5, margin: "7px 0 0" }}>{visibleText(pattern.explanation)} <a href="#evidence" style={{ color: "var(--teal)" }}>View evidence</a></p>)}</div>}
     </section>)}
 
     {scope === "astronaut" && <section id="evidence" className="card" style={surface}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}><Sparkles size={15} color="var(--teal)"/><h2 className="section-kicker" style={{ margin: 0 }}>RETRIEVED EVIDENCE · {activeContext?.evidence.length ?? 0}</h2></div>
-      <div style={{ maxHeight: 310, overflow: "auto" }}>{activeContext?.evidence.map((item) => <details key={`${item.kind}-${item.id}`} style={{ borderTop: "1px solid var(--line)", padding: "8px 0" }}><summary style={{ cursor: "pointer", fontSize: 10, color: "#c3d5d2" }}>{item.label} · {item.timestamp ? new Date(item.timestamp).toLocaleString() : "date unavailable"} <code style={{ color: "var(--teal-dim)" }}>{item.id}</code></summary><p style={{ whiteSpace: "pre-wrap", color: "var(--muted)", fontSize: 10, lineHeight: 1.5, margin: "7px 0 0" }}>{item.detail}</p></details>)}</div>
-      {activeContext && recordEvidence.length > 0 && <a href="/astronaut/history" style={{ color: "var(--teal)", fontSize: 10, display: "inline-flex", alignItems: "center", gap: 4, marginTop: 9 }}>Open health history <ExternalLink size={11}/></a>}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}><Sparkles size={15} color="var(--teal)"/><h2 className="section-kicker" style={{ margin: 0 }}>Health history evidence</h2></div>
+      {recordEvidence.length > 0 && <p style={{ color: "#a8c5c1", fontSize: 12, margin: "0 0 10px" }}>{recordEvidence.length} check-ins in {periodLabel(period)} — latest {recordEvidence.map((item) => item.timestamp).filter(Boolean).sort().at(-1) ? new Date(recordEvidence.map((item) => item.timestamp).filter(Boolean).sort().at(-1)!).toLocaleDateString("en-GB") : "date unavailable"} · <a href="/astronaut/history" style={{ color: "var(--teal)" }}>Open health history</a></p>}
+      <div style={{ maxHeight: 310, overflow: "auto" }}>{recordEvidence.map((item) => <details key={`${item.kind}-${item.id}`} style={{ borderTop: "1px solid var(--line)", padding: "8px 0" }}><summary style={{ cursor: "pointer", fontSize: 12, color: "#c3d5d2" }}>Health check-in · {item.timestamp ? new Date(item.timestamp).toLocaleDateString("en-GB") : "date unavailable"}</summary><ul style={{ color: "var(--muted)", fontSize: 12, lineHeight: 1.6, margin: "7px 0 0", paddingLeft: 18 }}>{evidenceReadings(item).map((reading) => <li key={reading}>{visibleText(reading)}</li>)}</ul></details>)}</div>
     </section>}
 
 {scope === "astronaut" && aiChatCard}
@@ -234,7 +260,8 @@ export function AIIntelligencePanel({ scope, astronautId }: { scope: Scope; astr
 
 function EvidenceLinks({ ids, evidence }: { ids: string[]; evidence: Evidence[] }) {
   const evidenceById = new Map(evidence.map((item) => [item.id, item]));
-  return <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>{ids.map((id) => { const item = evidenceById.get(id); return item ? <a href="#evidence" key={id} title={item.detail} style={{ color: "var(--teal)", fontSize: 9, border: "1px solid var(--line)", borderRadius: 4, padding: "3px 5px" }}>{item.label} · {id}</a> : null; })}</div>;
+  const readings = [...new Set(ids.flatMap((id) => { const item = evidenceById.get(id); return item ? evidenceReadings(item) : []; }))];
+  return readings.length ? <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>{readings.map((reading) => <a href="#evidence" key={reading} style={{ color: "var(--teal)", fontSize: 10, border: "1px solid var(--line)", borderRadius: 4, padding: "3px 6px" }}>{cleanDisplayText(reading)}</a>)}</div> : null;
 }
 
 type MissionPoint = { value: number; date: string };
@@ -292,7 +319,7 @@ function MissionEvaluation({ context, answer, loading, error, period }: { contex
     const distance = (group: typeof a) => Math.max(...group.items.map((item) => item.actualValue != null && item.expectedMinimum != null && item.expectedMaximum != null ? Math.max(item.expectedMinimum - item.actualValue, item.actualValue - item.expectedMaximum, 0) : 0));
     return distance(b) - distance(a);
   }).slice(0, 5);
-  const plain = (text: string) => text.replace(/\b(?:rec|ast|asmnt|alert)-[\w-]+\b/gi, "health record").replace(/PHASE\s*[34]/gi, "earlier review").replace(/\bRETRIEVED\b/gi, "provided").replace(/\bdeterministic\b/gi, "rule-based").replace(/\bSD\b/gi, "").replace(/\bmedian\b/gi, "usual midpoint");
+  const plain = cleanDisplayText;
   const fmt = (value: unknown) => value == null ? "not recorded" : String(value);
   const dataItems = (subject: Subject) => [
     ["Heart rate", subject.currentMeasurements?.heartRateBpm, "bpm"], ["Blood pressure", subject.currentMeasurements?.bloodPressureMmHg, "mmHg"],

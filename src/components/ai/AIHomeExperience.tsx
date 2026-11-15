@@ -7,6 +7,7 @@ import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import { EmergencyAssistant, type EmergencyContext } from "@/components/emergency/EmergencyAssistant";
 import type { HealthRecord } from "@/types";
 import { useMicrophoneLevel } from "@/hooks/useMicrophoneLevel";
+import { CrewCareWelcome } from "@/components/ai/CrewCareWelcome";
 
 type Evidence = { id: string; label: string; timestamp: string | null; url?: string };
 type AIAnswer = {
@@ -168,6 +169,7 @@ export function AIHomeExperience() {
   };
 
   return <main className="app-shell landing-shell">
+    <CrewCareWelcome/>
     <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
     <div className="landing-content">
       <div className="landing-badge"><span className="live-dot"/><span>NASA SPACE APPS CHALLENGE 2026</span><span className="mission-pill-sep"/><span>DEMO BUILD</span></div>

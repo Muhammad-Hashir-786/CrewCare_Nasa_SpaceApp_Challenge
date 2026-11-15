@@ -731,7 +731,17 @@
 @keyframes emergency-pulse { 50% { opacity: .5; transform: scale(.82); } }
 @media (max-width: 560px) { .emergency-main { padding: 25px 14px 36px; } .emergency-input-row { grid-template-columns: 1fr; } .emergency-controls { justify-content: stretch; } .emergency-control { flex: 1; } }
 @media (prefers-reduced-motion: reduce) { .emergency-pulse { animation: none; } }
-.emergency-aid-dashboard-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(330px,.9fr);align-items:start;gap:16px;margin:0 0 16px}.emergency-aid-dashboard-grid>.first-aid-card{margin:0}.emergency-aid-dashboard-grid .first-aid-steps{margin-bottom:20px}@media(max-width:1000px){.emergency-aid-dashboard-grid{grid-template-columns:minmax(0,1fr) minmax(280px,.78fr);gap:10px}}@media(max-width:760px){.emergency-aid-dashboard-grid{grid-template-columns:1fr}}
+.emergency-aid-dashboard-grid{width:min(1440px,calc(100vw - 48px));position:relative;left:50%;transform:translateX(-50%);display:grid;grid-template-columns:minmax(0,1fr);align-items:start;gap:16px;margin:0 0 16px}.emergency-aid-dashboard-grid>.first-aid-card{width:100%;margin:0}.emergency-aid-dashboard-grid .first-aid-steps{margin-bottom:20px}
+.first-aid-context-row{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(250px,.75fr);gap:12px;margin:14px 0}.first-aid-context-row .space-risk-note,.first-aid-context-row .who-with-first-step{height:100%;margin:0;padding:14px 16px}
+.first-aid-steps{grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch;gap:14px}
+.first-aid-steps li{min-height:100%;padding:17px;gap:12px;background:linear-gradient(145deg,rgba(14,29,27,.98),rgba(6,16,15,.98));box-shadow:0 8px 22px rgba(0,0,0,.12)}
+.first-aid-steps li.current-step{border-color:var(--emergency-teal);box-shadow:0 0 0 1px rgba(88,215,196,.15),0 0 24px rgba(88,215,196,.12)}
+.first-aid-steps li.completed-step{opacity:.62}
+.first-aid-steps li.current-step.completed-step{opacity:.78}
+.first-aid-step-copy strong{font-size:17px;line-height:1.35}
+.first-aid-step-copy p{font-size:16px;line-height:1.48}
+@media(max-width:1050px){.first-aid-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.first-aid-context-row{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.emergency-aid-dashboard-grid{width:calc(100vw - 24px)}.first-aid-context-row{grid-template-columns:1fr}.first-aid-steps{grid-template-columns:minmax(0,1fr);gap:10px}.first-aid-steps li{padding:14px}.first-aid-step-copy p{font-size:16px}}
 
 /* Microphone capture indicators are driven by the measured input level (0–1). */
 .landing-mic-control{position:relative;display:flex;align-items:center;justify-content:flex-end;gap:4px;flex:none;width:41px;height:48px;transition:width .12s ease}
