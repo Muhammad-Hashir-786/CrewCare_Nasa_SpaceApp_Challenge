@@ -52,6 +52,31 @@ const NASA_MEDICAL_URL = "https://www.nasa.gov/reference/medical-operations-and-
 const defaultScreen: EmergencyScreen = { responsive: "", breathingNormally: "", severeBleeding: "" };
 const localSafetyLine = "CrewCare is not a doctor — this is first-aid guidance until professional help arrives.";
 
+function identifyEmergencyType(description: string): EmergencyType | null {
+  const value = description.toLowerCase();
+  if (/radiation|solar flare|dosimeter|radiation alarm/.test(value)) return "radiation";
+  if (/decompression|the bends|bends|spacewalk.*(pain|symptom)|joint pain.*spacewalk/.test(value)) return "decompression-sickness";
+  if (/vision loss|can't see|cannot see|blind|blurred vision|vision change|eye pain|eye change/.test(value)) return "vision-change";
+  if (/toxic air|smoke|fumes|chemical smell|bad smell|cabin smell|air quality|co2 alarm/.test(value)) return "toxic-air";
+  if (/chok(e|ing)|something stuck in (his|her|their) throat/.test(value)) return "choking";
+  if (/burn|scald/.test(value)) return "burn";
+  if (/heavy bleed|bleeding|won't stop bleeding|will not stop bleeding|blood loss|blood is coming out/.test(value)) return "heavy-bleeding";
+  if (/collapsed|collapse|unconscious|unresponsive|not responding|not breathing|stopped breathing|gasping|cpr|fainted/.test(value)) return "collapsed";
+  if (/chest pain|pain in (his|her|their) chest|heart problem|heart pain/.test(value)) return "chest-pain";
+  if (/trouble breathing|difficulty breathing|shortness of breath|can't breathe|cannot breathe|low oxygen|breathing problem/.test(value)) return "breathing-trouble";
+  if (/broken bone|fracture|broke (his|her|their) (arm|leg|wrist|ankle|bone)|bone is broken/.test(value)) return "broken-bone";
+  if (/high fever|fever|very hot|severe infection/.test(value)) return "fever-infection";
+  if (/panic|panicking|confused|confusion|disoriented|severe distress/.test(value)) return "panic-confusion";
+  return null;
+}
+
+function clarifyingQuestion(description: string): string {
+  const value = description.toLowerCase();
+  if (/bleed|blood|cut|wound/.test(value)) return "Where is the bleeding, and is it heavy?";
+  if (/breath|collapse|faint|unconscious|unresponsive/.test(value)) return "Is the person conscious and breathing normally?";
+  return "Is anyone injured, bleeding, having trouble breathing, or facing an immediate hazard?";
+}
+
 export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }: { context?: EmergencyContext; fullPage?: boolean; exitHref?: string }) {
   const router = useRouter();
   const { addHealthRecord } = useAstronaut();
@@ -256,12 +281,45 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); const report = text.trim();
-    const activeType = selectedType ?? "other";
-    if (!selectedType) { setSelectedType("other"); setStartedAt(new Date(APP_NOW_ISO)); setCurrentStep(0); setDoneSteps([]); }
     if (!report) { setError("Tell Nova what happened, or tap one of the situation shortcuts below."); return; }
-    stopListening(); window.speechSynthesis?.cancel(); setVoiceState("PROCESSING"); addMessage("crew", report);
-    const firstAction = getFirstAidSteps(activeType, breathingAnswer)[0];
+    stopListening(); window.speechSynthesis?.cancel(); setError("");
+    const identifiedType = identifyEmergencyType(report);
+    const activeType = identifiedType ?? (selectedType && selectedType !== "other" ? selectedType : null);
+    addMessage("crew", report);
+    if (!activeType) {
+      const question = clarifyingQuestion(report);
+      addMessage("assistant", question);
+      setText(""); setVoiceState("WAITING"); speak(question);
+      return;
+    }
+
+    const typeChanged = selectedType !== activeType;
+    const breathingFromReport: "YES" | "NO" | null = /not breathing|stopped breathing|gasping|cannot breathe|can't breathe/.test(report.toLowerCase())
+      ? "NO"
+      : /breathing normally|breathing okay|is breathing normally/.test(report.toLowerCase()) ? "YES" : null;
+    const procedureChanged = typeChanged || (activeType === "collapsed" && breathingFromReport !== null && breathingFromReport !== screen.breathingNormally);
+    if (!startedAt || typeChanged) setStartedAt(new Date(APP_NOW_ISO));
+    if (procedureChanged) { setDoneSteps([]); setCurrentStep(0); setHandsFree(false); handsFreeActive.current = false; }
+    setSelectedType(activeType);
+    setScreen((previous) => {
+      const base = typeChanged ? {
+        responsive: activeType === "collapsed" ? "NO" : "",
+        breathingNormally: "",
+        severeBleeding: activeType === "heavy-bleeding" ? "YES" : "",
+      } : previous;
+      return { ...base, ...(breathingFromReport ? { breathingNormally: breathingFromReport } : {}) };
+    });
+    if (typeChanged) {
+      setTestResults({}); setUpdatedAnalysis(null); setAnalysisUpdated(false);
+      if (activeType === "chest-pain" && knownAllergies) setAllergy(storedAspirinAllergy ? "YES" : "NO");
+      else setAllergy(null);
+      setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false);
+    }
+    setVoiceState("PROCESSING");
+    const effectiveBreathing = breathingFromReport ?? breathingAnswer;
+    const firstAction = getFirstAidSteps(activeType, effectiveBreathing)[0];
     if (firstAction) speak(`First step. ${firstAction.title}. ${firstAction.instruction}`);
+    window.setTimeout(() => stepsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
     const demoState = selectedCrew ? {
       astronautId: selectedCrew.id,
       records: history.slice(-180).map((record) => ({
@@ -283,22 +341,28 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
         acknowledgedBy: "acknowledgedBy" in alert ? alert.acknowledgedBy ?? null : null,
       })),
     } : undefined;
-    const screenForApi = { responsive: screen.responsive || "UNKNOWN", breathingNormally: screen.breathingNormally || "UNKNOWN", severeBleeding: screen.severeBleeding || "UNKNOWN" };
+    const activeScreen = {
+      responsive: activeType === "collapsed" ? "NO" : screen.responsive || "UNKNOWN",
+      breathingNormally: effectiveBreathing || screen.breathingNormally || "UNKNOWN",
+      severeBleeding: activeType === "heavy-bleeding" ? "YES" : screen.severeBleeding || "UNKNOWN",
+    };
+    const activeSteps = getFirstAidSteps(activeType, effectiveBreathing);
     try {
       const response = await fetch("/api/emergency/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-        identity: selectedCrew ? "OTHER_KNOWN" : "UNKNOWN", astronautId: demoState?.astronautId, screen: screenForApi,
-        concern: `${EMERGENCY_TYPES.find((item) => item.id === activeType)?.label ?? "Emergency"}. ${report}. First-aid guidance has already been shown locally; add only relevant next steps. Patient: ${selectedCrew?.name ?? "no crew member selected"}. Stored allergies: ${knownAllergies?.join(", ") ?? "not recorded"}. Stored conditions: ${knownConditions?.join(", ") ?? "not recorded"}.`,
-        conversationHistory: [...messages.slice(-10), { role: "crew" as const, text: report }], demoState,
+        identity: selectedCrew ? "OTHER_KNOWN" : "UNKNOWN", astronautId: demoState?.astronautId, screen: activeScreen,
+        concern: `Situation identified as ${EMERGENCY_TYPES.find((item) => item.id === activeType)?.label ?? "Emergency"}. Crew report: ${report}. Show the structured local procedure already displayed; answer the newest question in the context of this same situation and clarify how its steps apply. Do not replace the procedure with a generic paragraph or contradict its steps. Current first-aid steps: ${activeSteps.map((step, index) => `${index + 1}. ${step.title}: ${step.instruction}`).join(" ")}. Patient: ${selectedCrew?.name ?? "no crew member selected"}. Stored allergies: ${knownAllergies?.join(", ") ?? "not recorded"}. Stored conditions: ${knownConditions?.join(", ") ?? "not recorded"}.`,
+        conversationHistory: [...messages, { role: "crew" as const, text: report }], demoState,
       }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "AI follow-up is unavailable. Your local first-aid steps remain on screen.");
       const references = Array.isArray(payload.evidenceReferences) && payload.evidenceReferences.length ? `References: ${payload.evidenceReferences.map((item: { label: string; timestamp: string | null }) => `${item.label}${item.timestamp ? ` · ${formatAppDate(item.timestamp)}` : ""}`).join("; ")}.` : "";
-      const assistantReply = [payload.reply, references, payload.nextQuestion ? `One quick question: ${payload.nextQuestion}` : "", localSafetyLine, "SIMULATED DATA · Follow the displayed first-aid steps and confirm all actions against the current mission kit and approved procedures."].filter(Boolean).join("\n\n");
+      const matchedSituation = `ACT NOW · ${EMERGENCY_TYPES.find((item) => item.id === activeType)?.label ?? "Emergency"}. The numbered first-aid procedure is shown below.`;
+      const assistantReply = [matchedSituation, payload.reply, references, payload.nextQuestion ? `One quick question: ${payload.nextQuestion}` : "", localSafetyLine, "SIMULATED DATA · Follow the displayed first-aid steps and confirm all actions against the current mission kit and approved procedures."].filter(Boolean).join("\n\n");
       addMessage("assistant", assistantReply); speak(assistantReply); setText("");
     } catch (cause) {
       const fallback = cause instanceof Error ? cause.message : "AI follow-up is unavailable.";
       setError(`${fallback} The local ${emergency?.label.toLowerCase() ?? "first-aid"} steps remain available above; continue with them and the approved mission kit.`);
-      addMessage("assistant", `AI follow-up is unavailable. Continue with the numbered first-aid steps shown on this screen.\n\n${localSafetyLine}\n\nSIMULATED DATA. The application has not contacted anyone.`);
+      addMessage("assistant", `ACT NOW · ${EMERGENCY_TYPES.find((item) => item.id === activeType)?.label ?? "Emergency"}. The numbered first-aid procedure is shown below.\n\nAI follow-up is unavailable. Continue with the numbered first-aid steps shown on this screen.\n\n${localSafetyLine}\n\nSIMULATED DATA. The application has not contacted anyone.`);
       setVoiceState("CONNECTION_ERROR");
     }
   };
@@ -438,7 +502,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
           </form>
           <div className="nova-voice-status" role="status" aria-live="polite">{voiceState === "SPEAKING" ? "Nova is speaking" : voiceState === "LISTENING" ? <><i className="nova-listening-dot"/>Listening… tap to stop</> : micLevel.micOff ? "Mic off — tap to allow. Typed input is available." : voiceState === "PROCESSING" ? "Nova is preparing a response" : "Voice guidance is ready"}</div>
           {error && <p role="alert" className="emergency-error">{error}</p>}
-          {messages.length > 0 && <section className="emergency-transcript" aria-label="Nova conversation">{messages.map((message, index) => <article key={`${message.at}-${index}`} className={`emergency-message emergency-message-${message.role}`}><span>{message.role === "crew" ? "YOU" : "NOVA · SIMULATED GUIDANCE"}</span><p>{message.text}</p><time>{formatAppDateTime(message.at, { hour: "numeric", minute: "2-digit" })}</time></article>)}</section>}
+          {!selectedType && messages.length > 0 && <section className="emergency-transcript" aria-label="Nova conversation">{messages.map((message, index) => <article key={`${message.at}-${index}`} className={`emergency-message emergency-message-${message.role}`}><span>{message.role === "crew" ? "YOU" : "NOVA · SIMULATED GUIDANCE"}</span><p>{message.text}</p><time>{formatAppDateTime(message.at, { hour: "numeric", minute: "2-digit" })}</time></article>)}</section>}
         </section>
 
         <section className="emergency-options-section" aria-label="Emergency shortcuts"><h2>Or tap the closest situation — shortcuts</h2>
@@ -463,6 +527,12 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
             <ol className="first-aid-steps">{steps.map((step, index) => <li key={`${index}-${step.title}`} className={`${currentStep === index ? "current-step" : ""} ${doneSteps[index] ? "completed-step" : ""}`}><span className="first-aid-step-number">{index + 1}</span><div className="first-aid-step-copy"><strong>{step.title}</strong><p>{step.instruction}</p></div><button type="button" className={`step-done-button ${doneSteps[index] ? "done" : ""}`} aria-label={`Mark step ${index + 1} ${doneSteps[index] ? "not done" : "done"}`} aria-pressed={doneSteps[index] ?? false} onClick={() => toggleDone(index)}>{doneSteps[index] ? <Check size={19}/> : <span/>}</button></li>)}</ol>
             {steps.length > 0 && doneSteps.length === steps.length && doneSteps.every(Boolean) && <p className="emergency-steps-complete" role="status" aria-live="polite"><Check size={17}/> You marked every listed step complete. Keep monitoring the person and share the situation summary when the channel allows.</p>}
             <div className="step-voice-controls"><button type="button" className="step-read-button" onClick={() => sayCurrentStep(false)}><Volume2 size={18}/> Read this step</button><button type="button" className={handsFree ? "step-handsfree-button active" : "step-handsfree-button"} onClick={toggleHandsFree}>{handsFree ? <VolumeX size={18}/> : <Volume2 size={18}/>} {handsFree ? "Stop hands-free" : "Hands-free"}</button><button type="button" className="step-next-button" disabled={currentStep >= steps.length - 1} onClick={nextStep}>Next step <ChevronRight size={19}/></button></div>
+            <section className="emergency-followup-chat" aria-label="Ask Nova a follow-up question">
+              <h3>Ask Nova a follow-up</h3>
+              {messages.length > 0 && <div className="emergency-transcript" aria-label="Conversation history">{messages.map((message, index) => <article key={`${message.at}-${index}`} className={`emergency-message emergency-message-${message.role}`}><span>{message.role === "crew" ? "YOU" : "NOVA · SIMULATED GUIDANCE"}</span><p>{message.text}</p><time>{formatAppDateTime(message.at, { hour: "numeric", minute: "2-digit" })}</time></article>)}</div>}
+              <form onSubmit={submit} className="emergency-followup-form"><textarea aria-label="Ask Nova a follow-up question" value={text} onChange={(event) => setText(event.target.value)} placeholder="Ask what to do next…" rows={2} maxLength={1200}/><button type="submit" className="nova-send-button" disabled={!text.trim()}><Send size={18}/> Ask Nova</button></form>
+              {error && <p role="alert" className="emergency-error">{error}</p>}
+            </section>
             {selectedType === "chest-pain" && <section className="medicine-check emergency-card" aria-label="Aspirin safety check"><div><span className="section-kicker">MEDICINES FROM THE KIT · ASK FIRST</span><h3>Any known aspirin allergy?</h3><p>{storedAspirinAllergy ? `Stored profile lists an aspirin allergy for ${selectedCrew?.name ?? "this person"}. Do not suggest aspirin.` : knownAllergies === null && selectedCrew ? "No allergy list is stored for this crew member. Confirm directly; if uncertain, do not use aspirin." : "Do not offer a pill until the quick checks and actual kit label are confirmed."}</p></div>
               {!storedAspirinAllergy && <div className="medicine-choice-row">{([{ value: "NO", label: "No known allergy" }, { value: "YES", label: "Allergic / unsure" }] as Array<{ value: QuickAnswer; label: string }>).map(({ value, label }) => <button key={label} type="button" className={`medicine-choice ${allergy === value ? "selected" : ""}`} aria-pressed={allergy === value} onClick={() => { setAllergy(value); setKitAspirinConfirmed(false); }}>{label}</button>)}</div>}
               {allergy === "NO" && !storedAspirinAllergy && <><div className="medicine-choice-row"><span>Conscious and able to chew/swallow?</span>{([{ value: "YES", label: "Yes" }, { value: "NO", label: "No" }] as Array<{ value: QuickAnswer; label: string }>).map(({ value, label }) => <button key={label} type="button" className={`medicine-choice ${canSwallow === value ? "selected" : ""}`} aria-pressed={canSwallow === value} onClick={() => setCanSwallow(value)}>{label}</button>)}</div><div className="medicine-choice-row"><span>Told by a health professional to avoid aspirin?</span>{([{ value: "NO", label: "No" }, { value: "YES", label: "Yes / unsure" }] as Array<{ value: QuickAnswer; label: string }>).map(({ value, label }) => <button key={label} type="button" className={`medicine-choice ${toldToAvoidAspirin === value ? "selected" : ""}`} aria-pressed={toldToAvoidAspirin === value} onClick={() => setToldToAvoidAspirin(value)}>{label}</button>)}</div><div className="kit-reference"><strong>Illustrative onboard kit list · not verified</strong><p>{SAMPLE_MEDICAL_KIT.items[0].name} · Adult dose: {SAMPLE_MEDICAL_KIT.items[0].dose}</p><small>{SAMPLE_MEDICAL_KIT.status}. Check the physical kit and current mission procedure.</small></div><label className="kit-confirm-row"><input type="checkbox" checked={kitAspirinConfirmed} onChange={(event) => setKitAspirinConfirmed(event.target.checked)}/> I checked this exact item in the onboard kit</label>{aspirinEligible ? <p className="medicine-eligible">Listed kit item: chewable aspirin 81 mg. For an alert adult with non-traumatic chest pain, the adult first-aid reference dose is 162–324 mg (2–4 tablets). Follow the confirmed kit label and mission procedure.</p> : <p className="medicine-no-dose">No medicine yet. Confirm the allergy, alertness, kit item, and mission procedure first; if uncertain, do not use it.</p>}</>}

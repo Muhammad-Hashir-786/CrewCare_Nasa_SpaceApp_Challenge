@@ -122,10 +122,8 @@ export function CrewCareWelcome() {
         </svg>
         {waving && <span className={styles.waveLabel}>Hi!</span>}
       </button>
-      <p className={styles.agentName}>NOVA <span>· YOUR CREWCARE GUIDE</span></p>
       <div className={styles.copy} aria-live="polite">
         <h1><span>Welcome to CrewCare</span><span>Your Astronaut Health Care System</span></h1>
-        <p>Your health, watched over — wherever you are in space.</p>
       </div>
       <div className={styles.greeting} aria-live="polite">{greeting}</div>
       <p className={styles.tapHint}>Tap Nova to hear her greeting again.</p>

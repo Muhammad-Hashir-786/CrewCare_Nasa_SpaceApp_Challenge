@@ -6,19 +6,17 @@
 .content{position:relative;z-index:1;display:flex;align-items:center;flex-direction:column;width:min(760px,100%);text-align:center}
 .eyebrow{display:flex;align-items:center;gap:9px;margin-bottom:17px;padding:9px 15px;border:1px solid #dce6e4;border-radius:99px;background:#fff;color:#344744;font:700 13px/1.2 Manrope,system-ui,sans-serif;letter-spacing:.1em}
 .eyebrow span{width:6px;height:6px;border-radius:50%;background:#67ded6;box-shadow:0 0 10px rgba(103,222,214,.5)}
-.agent{position:relative;display:grid;place-items:center;width:252px;height:252px;padding:0;border:0;border-radius:50%;background:transparent;cursor:pointer;animation:agentArrive .85s cubic-bezier(.18,.8,.25,1) both,agentFloat 4.2s ease-in-out .85s infinite}
+.agent{position:relative;display:grid;place-items:center;width:252px;height:252px;margin-bottom:18px;padding:0;border:0;border-radius:50%;background:transparent;cursor:pointer;animation:agentArrive .85s cubic-bezier(.18,.8,.25,1) both,agentFloat 4.2s ease-in-out .85s infinite}
 .agent svg{position:relative;z-index:1;width:200px;height:200px;overflow:visible;filter:drop-shadow(0 0 22px rgba(85,224,208,.24))}
 .face{fill:#d7e5e2;stroke:#08784f;stroke-width:2}.cap{fill:#d7e5e2;stroke:#08784f;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}.cross{fill:none;stroke:#08784f;stroke-width:3;stroke-linecap:round}.eye{fill:#08784f}.smile,.stethoscope{fill:none;stroke:#08784f;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}.stethoscopeHead{fill:#d7e5e2;stroke:#08784f;stroke-width:2.2}.wave{fill:none;stroke:#08784f;stroke-width:3;stroke-linecap:round;opacity:0;transform-origin:103px 52px}
 .agent:hover{filter:brightness(1.08)}.agent:focus-visible{outline:2px solid #67ded6;outline-offset:9px}
 .ring{position:absolute;border:1px solid #dce6e4;border-radius:50%;animation:ringPulse 3s ease-in-out infinite}.ringOne{inset:14px}.ringTwo{inset:-3px;opacity:.62;animation-delay:1.4s}
 .waving .wave{animation:waveHello .8s ease-in-out 2}
 .waveLabel{position:absolute;right:3px;top:22px;padding:6px 10px;border:1px solid #dce6e4;border-radius:99px;color:#08784f;background:#ffffff;font:700 12px Manrope;animation:waveLabel .22s ease both}
-.agentName{margin:0 0 12px;color:#08784f;font:700 14px Manrope,system-ui,sans-serif;letter-spacing:.14em}.agentName span{color:#4d605d;font-size:13px;letter-spacing:.08em}
-.copy h1{display:grid;gap:6px;margin:0;font:750 clamp(30px,5vw,52px)/1.12 Manrope,system-ui,sans-serif;letter-spacing:-.035em}
+.copy h1{display:grid;gap:10px;margin:0;font:750 clamp(30px,5vw,52px)/1.12 Manrope,system-ui,sans-serif;letter-spacing:-.035em}
 .copy h1 span{animation:lineIn .55s cubic-bezier(.18,.8,.25,1) both}.copy h1 span+span{animation-delay:.38s;color:#1f2e2c;font-size:clamp(23px,3.7vw,39px)}
-.copy>p{margin:15px 0 0;color:#4d605d;font:400 clamp(14px,2vw,17px)/1.55 "DM Sans",system-ui,sans-serif;animation:lineIn .55s ease .72s both}
-.greeting{max-width:680px;min-height:24px;margin-top:13px;color:#344744;font:500 17px/1.55 "DM Sans",system-ui,sans-serif;animation:lineIn .55s ease .92s both}
-.tapHint{margin:7px 0 0;color:#536562;font:500 15px/1.45 "DM Sans",system-ui,sans-serif}
+.greeting{max-width:680px;min-height:24px;margin-top:18px;color:#344744;font:500 17px/1.55 "DM Sans",system-ui,sans-serif;animation:lineIn .55s ease .92s both}
+.tapHint{margin:10px 0 0;color:#536562;font:500 15px/1.45 "DM Sans",system-ui,sans-serif}
 .actions{display:flex;align-items:center;justify-content:center;gap:11px;flex-wrap:wrap;margin-top:22px;animation:lineIn .55s ease 1s both}
 .enter,.skip,.mute{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:46px;border-radius:999px;cursor:pointer;font:650 14px Manrope,system-ui,sans-serif;transition:transform .18s ease,border-color .18s ease,background .18s ease}
 .enter{padding:0 22px;border:1px solid var(--primary-teal);background:var(--primary-teal);color:var(--primary-on-teal);box-shadow:0 8px 30px rgba(46,196,177,.15)}.enter:hover{transform:translateY(-2px);background:#066a64}
@@ -34,5 +32,5 @@
 @keyframes drift{from{transform:translate3d(-5px,5px,0);opacity:.12}to{transform:translate3d(12px,-14px,0);opacity:.46}}
 @keyframes waveHello{0%,100%{opacity:0;transform:rotate(0)}25%,75%{opacity:1}50%{opacity:1;transform:rotate(18deg)}}
 @keyframes waveLabel{from{opacity:0;transform:translateY(4px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
-@media(max-width:520px){.scene{padding:18px;overflow-y:auto}.content{max-width:440px;margin:auto}.eyebrow{font-size:12px;margin-bottom:10px}.agent{width:184px;height:184px}.agent svg{width:146px;height:146px}.ringOne{inset:7px}.ringTwo{inset:-8px}.agentName{font-size:13px;margin-bottom:9px}.agentName span{font-size:12px}.copy h1{font-size:32px}.copy h1 span+span{font-size:24px}.copy>p{max-width:340px}.greeting{max-width:360px;font-size:16px}.tapHint{font-size:14px}.actions{gap:8px;margin-top:17px}.enter{min-width:172px}.mute{min-width:105px}}
+@media(max-width:520px){.scene{padding:18px;overflow-y:auto}.content{max-width:440px;margin:auto}.eyebrow{font-size:12px;margin-bottom:10px}.agent{width:184px;height:184px;margin-bottom:16px}.agent svg{width:146px;height:146px}.ringOne{inset:7px}.ringTwo{inset:-8px}.copy h1{font-size:32px;gap:8px}.copy h1 span+span{font-size:24px}.greeting{max-width:360px;font-size:16px;margin-top:14px}.tapHint{font-size:14px}.actions{gap:8px;margin-top:17px}.enter{min-width:172px}.mute{min-width:105px}}
 @media(prefers-reduced-motion:reduce){.scene,.agent,.ring,.stars i,.copy h1 span,.copy>p,.greeting,.actions,.speechNote{animation:none!important}.agent{opacity:1;transform:none}}
