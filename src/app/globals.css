@@ -753,3 +753,26 @@
 .nova-mic-live-wave{position:absolute;right:0;top:50%;display:flex;align-items:center;justify-content:center;gap:2px;width:34px;height:32px;margin-top:-16px;color:var(--emergency-teal)}
 .nova-mic-live-wave i{display:block;width:3px;min-height:3px;border-radius:4px;background:currentColor;transition:height 45ms linear}
 .nova-voice-status:has(.nova-listening-dot){display:flex;align-items:center;gap:7px;color:#edaaa3}
+
+/* Emergency post-first-aid assessment */
+.emergency-followup-card{margin:16px 0;padding:20px;border:1px solid rgba(88,215,196,.28);border-radius:14px;background:rgba(8,24,22,.96);color:#edf8f8}
+.emergency-followup-card h2{margin:4px 0 10px;font:700 22px Manrope,sans-serif;color:#f2fbfa}
+.emergency-followup-card h3{margin:14px 0 7px;font:700 16px Manrope,sans-serif;color:#d9eeea}
+.emergency-followup-card p,.emergency-followup-card li{color:#b7cfca;font-size:15px;line-height:1.55}
+.emergency-followup-card small{color:#8da9a3;font-size:12px;line-height:1.5}
+.emergency-test-list{display:grid;gap:10px;margin:16px 0}
+.emergency-test-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(190px,.35fr);gap:12px;padding:13px;border:1px solid #24433e;border-radius:10px;background:#0a1715}
+.emergency-test-row label{display:grid;gap:6px;color:#a9c4bf;font-size:12px}
+.emergency-test-row input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #294943;border-radius:8px;background:#06100f;color:#eef9f7;font:16px Manrope,sans-serif}
+.emergency-test-row input:focus{outline:2px solid #67ded6;outline-offset:1px}
+.emergency-test-list+.step-next-button{min-height:48px;padding:12px 20px;font-size:16px}
+.emergency-test-list+.step-next-button:disabled{opacity:.5;cursor:not-allowed}
+.emergency-precaution-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.emergency-precaution-grid>div{padding:12px;border:1px solid #203b37;border-radius:10px;background:#091614}
+.emergency-precaution-grid ul{margin:8px 0 0;padding-left:20px}
+.emergency-ai-update{border-color:#398c82;box-shadow:0 0 24px rgba(74,210,195,.1)}
+.emergency-ai-update-heading{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.emergency-ai-update-heading>span:last-child{color:#87aaa4;font-size:11px;letter-spacing:.08em}
+.emergency-ai-update>h2{margin-top:0}
+.emergency-ai-update>small{display:block;margin-top:14px}
+@media(max-width:700px){.emergency-test-row,.emergency-precaution-grid{grid-template-columns:1fr}.emergency-followup-card{padding:15px}.emergency-followup-card h2{font-size:19px}}

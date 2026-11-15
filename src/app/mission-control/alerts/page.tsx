@@ -147,6 +147,7 @@ export default function AlertsPage() {
 
     <section className={styles.detailSection}>
       <div className={styles.sectionHeading}><span className={styles.sectionNumber}>01</span><div><h2>Actual readings</h2><p>Values from the crew member’s stored records</p></div></div>
+      <p className={styles.dataNote}>Rule source: CrewCare illustrative demo alert rule. NASA HRP provides context for cardiovascular and sleep risks; it did not set this alert threshold. <a href="/astronaut/learn#nasa-data-sources">How NASA data shapes this app</a></p>
       {readings.length > 0 ? <>
         <div className={styles.readingLayout}><div className={styles.readingList}>{readings.map((reading, index) => <div className={styles.readingRow} key={`${reading.date}-${index}`}><time>{dateLabel(reading.date)}</time><strong>{selected.metric === "sleepDuration" ? "Sleep" : "Blood pressure, top number"}</strong><b>{reading.value}{selected.metric !== "heartRate+systolicBP" && reading.secondary != null ? `/${reading.secondary}` : ""} <small>{selected.metric === "sleepDuration" ? "hours" : "mmHg"}</small>{selected.metric === "heartRate+systolicBP" && <em> · HR {reading.secondary ?? "not recorded"} bpm</em>}</b></div>)}</div>
           <div className={styles.chartCard}><div className={styles.chartHeading}><strong>{selected.metric === "sleepDuration" ? "Hours of sleep" : "Blood pressure, top number"}</strong><span>{selected.threshold != null ? `Reference line: ${selected.threshold} ${chartUnit}` : "Recorded values"}</span></div><ReadingChart readings={readings} threshold={selected.threshold} unit={chartUnit} label={selected.title}/></div>
@@ -183,7 +184,7 @@ function AlertItem({ alert, person, onOpen, onAcknowledge }: { alert: Alert; per
   const openKey = (event: React.KeyboardEvent<HTMLElement>) => { if (event.target instanceof HTMLButtonElement) return; if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } };
   return <article className={styles.alertCard} tabIndex={0} role="button" onClick={onOpen} onKeyDown={openKey} aria-label={`View details for ${alert.title}`}>
     <div className={styles.cardMeta}><span className={styles.severity}><i/>{alert.severity[0] + alert.severity.slice(1).toLowerCase()}</span><span>{alert.status === "ACTIVE" ? "Active" : "Acknowledged"}</span>{person && <span className={styles.person}>{person.callsign} · {person.name}</span>}</div>
-    <h3>{alert.title}</h3><p>{alert.message}</p>
+    <h3>{alert.title}</h3><p>{alert.message}</p><a href="/astronaut/learn#nasa-data-sources" onClick={(event) => event.stopPropagation()} style={{ display: "inline-block", marginTop: 8, color: "#73e1d8", fontSize: 12, textUnderlineOffset: 2 }}>Source: CrewCare demo alert rule · NASA HRP risk context</a>
     {alert.status === "ACKNOWLEDGED" && <small className={styles.ackLine}>Acknowledged by {alert.acknowledgedBy ?? "Mission Control"}</small>}
     <div className={styles.cardActions}><button className={styles.detailButton} onClick={(event) => { event.stopPropagation(); onOpen(); }}>View detail <ArrowRight size={16}/></button>{onAcknowledge && <button className={styles.ackButton} onClick={(event) => { event.stopPropagation(); onAcknowledge(); }}><CheckCircle size={16}/> Acknowledge</button>}</div>
   </article>;

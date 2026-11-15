@@ -22,5 +22,12 @@
 .emergencyGaugeCard h3{margin:0;color:#cfe0dd;font:700 14px/1.3 Manrope,sans-serif}
 .emergencyGaugeCard>p{margin:6px 0 0;color:#6fd1a5;font-size:12px;font-weight:750}
 .emergencyGaugeCard.tone_amber>p{color:#e2bf68}.emergencyGaugeCard.tone_red>p{color:#e78282}.emergencyGaugeCard.tone_neutral>p{color:#899995}
+.forecastRow{display:block}
+.forecastRow>p{display:flex;align-items:flex-start;gap:7px;margin:0;padding:9px 0;border-top:1px solid rgba(139,195,188,.1);color:#aebfbc;font-size:11px;line-height:1.5}
+.forecastRow>p>svg{flex:0 0 auto;margin-top:2px;color:#67ded6}
+.forecastRow>small{display:block;padding:0 0 7px 22px;color:#91aaa6;font-size:10px;line-height:1.45}
+.forecastRow>details{margin-left:22px;color:#91aaa6;font-size:10px;line-height:1.5}
+.forecastRow>details summary{cursor:pointer;color:#67ded6}
+.forecastRow>details p{margin:5px 0 8px}
 @media(max-width:760px){.emergencyPanel{grid-column:1;grid-template-columns:minmax(0,1fr);gap:18px}.emergencyBodyColumn .figureWrap{min-height:310px}.emergencyBodyColumn .figure{height:290px;width:min(100%,195px)}.emergencyGaugeGrid{gap:10px}}
 @media(max-width:470px){.emergencyPanel{padding:15px}.emergencyGaugeGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.emergencyGaugeCard{min-height:118px;padding:13px 12px}.emergencyReadingValue strong{font-size:26px}.emergencyReadingValue span{font-size:12px}}

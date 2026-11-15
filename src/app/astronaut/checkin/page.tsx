@@ -288,12 +288,12 @@ export default function CheckInPage() {
               </div>
               <div className={styles.vitalsGrid}>
                 {[
-                  { key: "heartRate",    label: "Heart rate",    unit: "bpm",   placeholder: "e.g. 72",  hint: "Typical demo range: 60–100 bpm", icon: Heart },
-                  { key: "systolicBP",   label: "Systolic blood pressure",   unit: "mmHg",  placeholder: "e.g. 118", hint: "Demo reference: under 120/80 mmHg", icon: Gauge },
-                  { key: "diastolicBP",  label: "Diastolic blood pressure",  unit: "mmHg",  placeholder: "e.g. 76",  hint: "Demo reference: under 120/80 mmHg", icon: Gauge },
-                  { key: "bodyTemp",     label: "Body temperature",     unit: "°C",    placeholder: "e.g. 36.8",hint: "Typical demo range: 36.5–37.5 °C", icon: Thermometer },
-                  { key: "oxygenSat",    label: "Oxygen saturation",          unit: "%",     placeholder: "e.g. 98",  hint: "Typical demo range: 95–100%", icon: Droplets },
-                  { key: "bloodGlucose", label: "Fasting blood sugar", unit: "mg/dL", placeholder: "e.g. 90",  hint: "Fasting demo range: 70–99 mg/dL", icon: Droplets },
+                  { key: "heartRate",    label: "Heart rate",    unit: "bpm",   placeholder: "e.g. 72",  hint: "Typical demo range: 60–100 bpm", icon: Heart, source: "NASA HRP risk context: cardiovascular adaptations" },
+                  { key: "systolicBP",   label: "Systolic blood pressure",   unit: "mmHg",  placeholder: "e.g. 118", hint: "Demo reference: under 120/80 mmHg", icon: Gauge, source: "NASA HRP risk context: cardiovascular adaptations" },
+                  { key: "diastolicBP",  label: "Diastolic blood pressure",  unit: "mmHg",  placeholder: "e.g. 76",  hint: "Demo reference: under 120/80 mmHg", icon: Gauge, source: "NASA HRP risk context: cardiovascular adaptations" },
+                  { key: "bodyTemp",     label: "Body temperature",     unit: "°C",    placeholder: "e.g. 36.8",hint: "Typical demo range: 36.5–37.5 °C", icon: Thermometer, source: "NASA HRP risk context: altered immune system" },
+                  { key: "oxygenSat",    label: "Oxygen saturation",          unit: "%",     placeholder: "e.g. 98",  hint: "Typical demo range: 95–100%", icon: Droplets, source: "NASA HRP risk context: hypoxia" },
+                  { key: "bloodGlucose", label: "Fasting blood sugar", unit: "mg/dL", placeholder: "e.g. 90",  hint: "Fasting demo range: 70–99 mg/dL", icon: Droplets, source: "NASA HRP nutrition context; range is a CrewCare demo rule" },
                 ].map((f) => (
                   <div key={f.key} className={styles.vitalField}>
                     <label className={styles.vitalLabel}>
@@ -310,7 +310,10 @@ export default function CheckInPage() {
                     {errors[f.key] ? (
                       <p style={{ margin: "4px 0 0", fontSize: 10, color: "#ef4444" }}>{errors[f.key]}</p>
                     ) : (
-                      <p className={styles.rangeHint}>{f.hint}</p>
+                      <>
+                        <p className={styles.rangeHint}>{f.hint}</p>
+                        <a href="/astronaut/learn#nasa-data-sources" className={styles.rangeHint} style={{ display: "inline-block", marginTop: 3, color: "#67ded6", textDecoration: "underline", textUnderlineOffset: 2 }}>Source: CrewCare demo rule · {f.source}</a>
+                      </>
                     )}
                   </div>
                 ))}
@@ -369,6 +372,8 @@ export default function CheckInPage() {
                 <button type="button" onClick={() => set("sleepQuality", null)} style={{ marginTop: 8, padding: "5px 9px", border: "1px solid var(--line)", borderRadius: 6, background: "transparent", color: form.sleepQuality == null ? "var(--teal-bright)" : "var(--muted)", fontSize: 10, cursor: "pointer" }}>Not reported</button>
               </div>
 
+              <p style={{ margin: "0 0 18px", padding: "10px 12px", border: "1px solid var(--line)", borderRadius: 8, color: "var(--muted)", fontSize: 12, lineHeight: 1.5 }}>Light exposure is another sleep factor. NASA actigraphy wrist devices measure motion, sleep patterns and light exposure; this demo does not collect an actigraphy signal.</p>
+
               {/* Fatigue */}
               <div>
                 <label style={{ ...labelStyle, marginBottom: 10 }}>Fatigue Level</label>
@@ -404,7 +409,7 @@ export default function CheckInPage() {
                 <h2 className={styles.stepTitle}>Wellbeing</h2>
               </div>
               <p className={styles.stepDescription} style={{ margin: "0 0 20px" }}>
-                Self-reported indicators, not a psychological diagnosis. Every field is optional.
+                Self-reported indicators, not a psychological diagnosis. Every field is optional. Mood context can include isolation, radiation, distance from Earth, sleep loss and team tension.
               </p>
 
               {/* Mood */}

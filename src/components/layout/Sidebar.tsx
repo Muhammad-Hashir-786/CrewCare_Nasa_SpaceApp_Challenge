@@ -22,7 +22,7 @@ const ASTRONAUT_NAV: NavItem[] = [
   { href: "/astronaut/analytics", label: "Trends",    Icon: BarChart2 },
   { href: "/astronaut/intelligence", label: "AI Insights", Icon: Sparkles },
   { href: "/astronaut/history",   label: "History",   Icon: Activity },
-  { href: "/astronaut/learn",     label: "Learn",     Icon: FileText },
+  { href: "/astronaut/learn",     label: "Data & sources", Icon: FileText },
 ];
 
 const MC_NAV: NavItem[] = [
@@ -31,6 +31,7 @@ const MC_NAV: NavItem[] = [
   { href: "/mission-control/analytics", label: "Analytics", Icon: LineChart },
   { href: "/mission-control/intelligence", label: "AI Intel", Icon: Sparkles },
   { href: "/mission-control/alerts", label: "Alerts", Icon: AlertTriangle },
+  { href: "/astronaut/learn", label: "Data & sources", Icon: FileText },
 ];
 
 export function Sidebar({ mode, missionDay = 184, missionTotal = 270 }: SidebarProps) {

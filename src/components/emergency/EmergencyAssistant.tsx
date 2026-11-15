@@ -9,6 +9,8 @@ import type { HealthRecord } from "@/types";
 import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import { BodyTrendDashboard } from "@/components/health/BodyTrendDashboard";
 import { useMicrophoneLevel } from "@/hooks/useMicrophoneLevel";
+import { useAstronaut } from "@/lib/astronaut-context";
+import type { AIHealthResponse } from "@/lib/ai/ai-types";
 
 type RecognitionEvent = { results: ArrayLike<ArrayLike<{ transcript: string }>> };
 type RecognitionLike = { lang: string; interimResults: boolean; maxAlternatives: number; onresult: ((event: RecognitionEvent) => void) | null; onerror: ((event: { error?: string }) => void) | null; onend: (() => void) | null; start: () => void; stop: () => void; abort: () => void };
@@ -23,6 +25,8 @@ type VoiceState = "IDLE" | "LISTENING" | "PROCESSING" | "SPEAKING" | "WAITING" |
 type Message = { role: "crew" | "assistant"; text: string; at: string };
 type QuickAnswer = "YES" | "NO" | null;
 type CrewProfile = typeof DEMO_ASTRONAUTS[number] & { knownAllergies?: string[] | null; knownConditions?: string[] | null; allergies?: string[] | null; conditions?: string[] | null };
+type EmergencyTest = { id: string; label: string; placeholder: string };
+type EmergencyTestResult = { result: string; time: string };
 
 const TRIAGE_QUESTIONS = [
   { key: "responsive", label: "Is the person conscious?" },
@@ -48,6 +52,7 @@ const localSafetyLine = "CrewCare is not a doctor — this is first-aid guidance
 
 export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }: { context?: EmergencyContext; fullPage?: boolean; exitHref?: string }) {
   const router = useRouter();
+  const { addHealthRecord } = useAstronaut();
   const [open, setOpen] = useState(fullPage);
   const [selectedType, setSelectedType] = useState<EmergencyType | null>(null);
   const [selectedCrewId, setSelectedCrewId] = useState("");
@@ -62,6 +67,10 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   const [canSwallow, setCanSwallow] = useState<QuickAnswer>(null);
   const [toldToAvoidAspirin, setToldToAvoidAspirin] = useState<QuickAnswer>(null);
   const [kitAspirinConfirmed, setKitAspirinConfirmed] = useState(false);
+  const [testResults, setTestResults] = useState<Record<string, EmergencyTestResult>>({});
+  const [updatedAnalysis, setUpdatedAnalysis] = useState<AIHealthResponse | null>(null);
+  const [analyzingTests, setAnalyzingTests] = useState(false);
+  const [analysisUpdated, setAnalysisUpdated] = useState(false);
   const [voiceState, setVoiceState] = useState<VoiceState>("IDLE");
   const [elapsed, setElapsed] = useState(0);
   const speechRate = 0.92;
@@ -110,6 +119,18 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   const breathingAnswer = screen.breathingNormally === "YES" || screen.breathingNormally === "NO" ? screen.breathingNormally : null;
   const steps = selectedType ? getFirstAidSteps(selectedType, breathingAnswer) : [];
   const aspirinEligible = !storedAspirinAllergy && allergy === "NO" && screen.responsive === "YES" && canSwallow === "YES" && toldToAvoidAspirin === "NO" && screen.severeBleeding === "NO" && kitAspirinConfirmed;
+  const emergencyTests: EmergencyTest[] = selectedType ? [
+    { id: "repeat-reading", label: "Repeat the relevant reading after 15 minutes", placeholder: "Enter the re-check result" },
+    ...(selectedType === "chest-pain" ? [
+      { id: "blood-pressure", label: "Re-check blood pressure", placeholder: "e.g. 118/76 mmHg" },
+      { id: "ecg", label: "ECG result", placeholder: "Enter the recorded ECG result" },
+    ] : []),
+    ...(selectedType === "fever-infection" ? [{ id: "temperature", label: "Re-check temperature", placeholder: "Enter temperature in °C" }] : []),
+    ...(selectedType === "collapsed" || selectedType === "panic-confusion" ? [{ id: "glucose", label: "Re-check blood glucose", placeholder: "Enter blood glucose in mg/dL" }] : []),
+    ...(selectedType === "breathing-trouble" ? [{ id: "oxygen", label: "Re-check oxygen saturation", placeholder: "Enter SpO₂ in %" }] : []),
+    ...(selectedType === "vision-change" ? [{ id: "eye-scan", label: "Eye scan result", placeholder: "Enter the recorded eye-scan result" }] : []),
+    ...(selectedType === "radiation" ? [{ id: "dosimeter", label: "Dosimeter reading", placeholder: "Enter the displayed reading and unit" }] : []),
+  ] : [];
 
   useEffect(() => {
     if (!open) return;
@@ -162,13 +183,13 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
   const retryWelcomeFromGesture = () => { if (welcomePending.current && !novaMuted) speakWelcome(); };
   const resetSession = () => {
     window.speechSynthesis?.cancel(); recognition.current?.abort(); micLevel.stop(); handsFreeActive.current = false; mutedRef.current = false; welcomePending.current = false; setNovaMuted(false); setOpen(true); setSelectedType(null); setSelectedCrewId(""); setSomeoneElse(false); setStartedAt(null); setScreen(defaultScreen); setDoneSteps([]); setCurrentStep(0); setHandsFree(false);
-    setAllergy(null); setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false); setError(""); setMessages([]); setText(""); setElapsed(0);
+    setAllergy(null); setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false); setTestResults({}); setUpdatedAnalysis(null); setAnalysisUpdated(false); setAnalyzingTests(false); setError(""); setMessages([]); setText(""); setElapsed(0);
     setRequestStatus("NOT_REQUESTED"); setVoiceState("IDLE"); voiceInteraction.current = false;
     speakWelcome();
   };
   const chooseEmergency = (type: EmergencyType) => {
     window.speechSynthesis?.cancel(); handsFreeActive.current = false; setSelectedType(type); setStartedAt(new Date()); setDoneSteps([]); setCurrentStep(0); setHandsFree(false); setError("");
-    setAllergy(type === "chest-pain" && knownAllergies ? storedAspirinAllergy ? "YES" : "NO" : null); setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false);
+    setAllergy(type === "chest-pain" && knownAllergies ? storedAspirinAllergy ? "YES" : "NO" : null); setCanSwallow(null); setToldToAvoidAspirin(null); setKitAspirinConfirmed(false); setTestResults({}); setUpdatedAnalysis(null); setAnalysisUpdated(false);
     setScreen({ responsive: type === "collapsed" ? "NO" : "", breathingNormally: "", severeBleeding: type === "heavy-bleeding" ? "YES" : "" });
     setVoiceState("WAITING");
     const first = getFirstAidSteps(type, null)[0];
@@ -270,6 +291,79 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
       setVoiceState("CONNECTION_ERROR");
     }
   };
+  const analyzeTestResults = async () => {
+    if (!selectedType || analyzingTests) return;
+    const entered = emergencyTests.flatMap((test) => {
+      const entry = testResults[test.id];
+      return entry?.result.trim() ? [{ ...test, result: entry.result.trim(), time: entry.time }] : [];
+    });
+    if (!entered.length) { setError("Enter at least one test result before asking Nova to analyze it."); return; }
+    setAnalyzingTests(true); setError("");
+    const testContext = entered.map((item) => `${item.label}: ${item.result}${item.time ? ` (recorded ${new Date(item.time).toLocaleString()})` : " (time not entered)"}`).join("; ");
+    const query = `Reassess this emergency using the person's stored check-in data and the new test results. Emergency: ${emergency?.label ?? selectedType}. Started: ${startedAt?.toISOString() ?? "not recorded"}. Situation: ${situationSummary}. Patient: ${selectedCrew?.name ?? "no crew member selected"}. Stored allergies: ${knownAllergies?.join(", ") ?? "not recorded"}. Stored conditions: ${knownConditions?.join(", ") ?? "not recorded"}. Configured sample medical kit: ${SAMPLE_MEDICAL_KIT.items.map((item) => `${item.name} — ${item.dose}`).join("; ")}. Recommend only these exact listed items after allergy checks; otherwise say no medicine in the kit for this and use the physical steps. Latest stored check-in: ${latest ? JSON.stringify({ recordedAt: latest.recordedAt, heartRate: latest.heartRate, systolicBP: latest.systolicBP, diastolicBP: latest.diastolicBP, bodyTemp: latest.bodyTemp, bloodGlucose: latest.bloodGlucose, oxygenSat: latest.oxygenSat, sleepDuration: latest.sleepDuration, symptoms: latest.symptoms, notes: latest.notes }) : "No stored check-in"}. New test results: ${testContext}. Give an updated verdict, plain-language meaning, up to five next actions relevant to this emergency, warning signs, and precautions. Do not diagnose, invent measurements, tests, medicines, or doses. Preserve the first-aid steps already shown unless the results require a clear update. End urgent help guidance with contact mission medical support / the flight surgeon.`;
+    const demoState = selectedCrew ? [{
+      astronautId: selectedCrew.id,
+      records: history.slice(-180).map((record) => ({
+        id: record.id, userId: record.userId, recordedAt: new Date(record.recordedAt).toISOString(), heartRate: record.heartRate ?? null,
+        systolicBP: record.systolicBP ?? null, diastolicBP: record.diastolicBP ?? null, bodyTemp: record.bodyTemp ?? null,
+        bloodGlucose: record.bloodGlucose ?? null, oxygenSat: record.oxygenSat ?? null, sleepDuration: record.sleepDuration ?? null,
+        sleepQuality: record.sleepQuality ?? null, mood: record.mood ?? null, fatigue: record.fatigue ?? null,
+        stressLevel: record.stressLevel ?? null, anxietyLevel: record.anxietyLevel ?? null, symptoms: record.symptoms ?? null,
+        symptomSeverity: record.symptomSeverity ?? null, notes: record.notes ?? null, isMeasured: record.isMeasured, isSimulated: true,
+      })),
+      latestAssessment: selectedAssessment ? { id: selectedAssessment.id, userId: selectedAssessment.userId, status: selectedAssessment.status, summary: selectedAssessment.summary, details: selectedAssessment.details ?? null, guidance: selectedAssessment.guidance ?? null, flags: selectedAssessment.flags, createdAt: new Date(selectedAssessment.createdAt).toISOString() } : null,
+      activeAlerts: selectedAlerts.map((alert) => ({ id: alert.id, userId: alert.userId, severity: alert.severity, status: alert.status, title: alert.title, message: alert.message, metric: "metric" in alert ? alert.metric ?? null : null, value: "value" in alert ? alert.value ?? null : null, threshold: "threshold" in alert ? alert.threshold ?? null : null, createdAt: new Date(alert.createdAt).toISOString(), acknowledgedAt: "acknowledgedAt" in alert && alert.acknowledgedAt ? new Date(alert.acknowledgedAt).toISOString() : null, acknowledgedBy: "acknowledgedBy" in alert ? alert.acknowledgedBy ?? null : null })),
+    }] : [];
+    try {
+      const response = await fetch("/api/ai/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: selectedCrew ? "astronaut" : "general", ...(selectedCrew ? { astronautId: selectedCrew.id } : {}), question: query, period: "30d", conversationHistory: [], demoStates: demoState }) });
+      const payload = await response.json();
+      if (!response.ok || !payload.analysis) throw new Error(payload.error ?? "AI analysis is unavailable. Continue the displayed first-aid steps.");
+      const analysis = payload.analysis as AIHealthResponse;
+      setUpdatedAnalysis(analysis); setAnalysisUpdated(true);
+
+      if (selectedCrew) {
+        const numeric = (id: string) => { const value = testResults[id]?.result.trim(); if (!value) return undefined; const match = value.match(/-?\d+(?:\.\d+)?/); return match ? Number(match[0]) : undefined; };
+        const bpMatch = testResults["blood-pressure"]?.result.match(/(\d{2,3})\s*\/\s*(\d{2,3})/);
+        const createdAt = new Date().toISOString();
+        const newVitals = {
+          heartRate: latest?.heartRate ?? null,
+          systolicBP: bpMatch ? Number(bpMatch[1]) : latest?.systolicBP ?? null,
+          diastolicBP: bpMatch ? Number(bpMatch[2]) : latest?.diastolicBP ?? null,
+          bodyTemp: numeric("temperature") ?? latest?.bodyTemp ?? null,
+          bloodGlucose: numeric("glucose") ?? latest?.bloodGlucose ?? null,
+          oxygenSat: numeric("oxygen") ?? latest?.oxygenSat ?? null,
+          sleepDuration: latest?.sleepDuration ?? null,
+          sleepQuality: latest?.sleepQuality ?? null,
+          mood: latest?.mood ?? null,
+          fatigueLevel: latest?.fatigue ?? null,
+          stressLevel: latest?.stressLevel ?? null,
+          anxietyLevel: latest?.anxietyLevel ?? null,
+        };
+        const note = `Emergency: ${emergency?.label}. Test results: ${testContext}. Updated after your new test results — here is what changed: ${analysis.summary}`;
+        const record: HealthRecord = { id: `emergency-${selectedCrew.id}-${Date.now()}`, userId: selectedCrew.id, recordedAt: createdAt, ...newVitals, symptoms: [emergency?.label, text.trim(), latest?.symptoms].filter(Boolean).join(" · ") || null, symptomSeverity: latest?.symptomSeverity ?? null, notes: [latest?.notes, note].filter(Boolean).join(" | "), isMeasured: true, isSimulated: true, measurementSource: "MANUAL_ENTRY" };
+        const phaseStatus = analysis.verdict === "ACT_NOW" ? "RED" : analysis.verdict === "WATCH" ? "AMBER" : "GREEN";
+        const savedAssessment = { id: `emergency-assessment-${selectedCrew.id}-${Date.now()}`, userId: selectedCrew.id, status: phaseStatus as "RED" | "AMBER" | "GREEN", summary: analysis.summary, details: analysis.whatThisCouldMean, guidance: analysis.whatToDoNow.join(" "), flags: ["EMERGENCY_SYMPTOM"], createdAt };
+        const recordPayload = {
+          userId: selectedCrew.id, source: "MANUAL_ENTRY" as const,
+          heartRate: newVitals.heartRate, systolicBP: newVitals.systolicBP, diastolicBP: newVitals.diastolicBP,
+          bodyTemp: newVitals.bodyTemp, bloodGlucose: newVitals.bloodGlucose, oxygenSat: newVitals.oxygenSat,
+          sleepDuration: newVitals.sleepDuration, sleepQuality: newVitals.sleepQuality, mood: newVitals.mood,
+          fatigueLevel: newVitals.fatigueLevel, stressLevel: newVitals.stressLevel, anxietyLevel: newVitals.anxietyLevel,
+          symptoms: record.symptoms, notes: record.notes,
+        };
+        try {
+          const persisted = await fetch("/api/assessments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(recordPayload) });
+          if (persisted.ok) {
+            const saved = await persisted.json();
+            if (saved.record?.id) record.id = saved.record.id;
+          }
+        } catch { /* Keep the assessment in the local demo record if the database is unavailable. */ }
+        addHealthRecord(record, savedAssessment, true);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "AI analysis failed. Continue the displayed first-aid steps.");
+    } finally { setAnalyzingTests(false); }
+  };
   const requestMedicalSupport = () => {
     setRequestStatus("LOCAL_REQUEST_RECORDED");
     addMessage("crew", "Requested medical assistance in this interface.");
@@ -326,7 +420,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
         </section>
 
         {selectedType && <>
-          <section className="live-situation-summary emergency-card" aria-live="polite" aria-label="Live situation summary"><div className="live-summary-title"><Clipboard size={19}/><strong>Live situation summary</strong><span>SIMULATED DATA</span></div><p>{situationSummary}</p><div className="emergency-quick-checks">{TRIAGE_QUESTIONS.map(({ key, label }) => <div className="quick-check-row" key={key}><strong>{label}</strong><div>{(["YES", "NO"] as const).map((value) => <button key={value} type="button" aria-pressed={screen[key] === value} className={`quick-answer ${screen[key] === value ? "selected" : ""}`} onClick={() => updateScreen(key, value)}>{value === "YES" ? "Yes" : "No"}</button>)}</div></div>)}</div><p className="live-summary-support">If another crew member is present, they can alert mission control while you continue these steps.</p><button type="button" className="copy-summary-button" onClick={() => void copySummary()}><Clipboard size={15}/> Copy summary</button></section>
+          <section className="live-situation-summary emergency-card" aria-live="polite" aria-label="Live situation summary"><div className="live-summary-title"><Clipboard size={19}/><strong>Live situation summary</strong><span>SIMULATED DATA</span></div><p>{situationSummary}</p><div className="emergency-quick-checks">{TRIAGE_QUESTIONS.map(({ key, label }) => <div className="quick-check-row" key={key}><strong>{label}</strong><div>{(["YES", "NO"] as const).map((value) => <button key={value} type="button" aria-pressed={screen[key] === value} className={`quick-answer ${screen[key] === value ? "selected" : ""}`} onClick={() => updateScreen(key, value)}>{value === "YES" ? "Yes" : "No"}</button>)}</div></div>)}</div><p className="live-summary-support">If another crew member is present, they can alert mission control while you continue these steps.</p><p className="live-summary-support">Far from Earth there is no ground support — that is why this guide gives you the steps instead of only saying call someone.</p><button type="button" className="copy-summary-button" onClick={() => void copySummary()}><Clipboard size={15}/> Copy summary</button></section>
 
           <div className="emergency-aid-dashboard-grid"><section ref={stepsPanelRef} className="first-aid-card emergency-card" aria-label={`${emergency?.label} first-aid steps`}><div className="emergency-active-banner">ACT NOW · {emergency?.label}</div><div className="first-aid-card-heading"><div><span className="section-kicker">SIMULATED FIRST-AID GUIDANCE</span><h2>What to do right now</h2></div><span className="steps-count">{doneSteps.filter(Boolean).length}/{steps.length} done</span></div>
             {getSpaceRiskNote(selectedType) && <p className="space-risk-note"><strong>Why this matters in space:</strong> {getSpaceRiskNote(selectedType)}</p>}
@@ -334,13 +428,17 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
             {selectedType === "collapsed" && <div className="pace-cue" aria-label="CPR pace cue 110 compressions per minute"><span className="pace-cue-dot"/><div><strong>CPR pace cue · 110/min</strong><small>About 2 pushes each second</small></div><span className="pace-cue-beat"/></div>}
             <ol className="first-aid-steps">{steps.map((step, index) => <li key={`${index}-${step.title}`} className={currentStep === index ? "current-step" : ""}><span className="first-aid-step-number">{index + 1}</span><div className="first-aid-step-copy"><strong>{step.title}</strong><p>{step.instruction}</p></div><button type="button" className={`step-done-button ${doneSteps[index] ? "done" : ""}`} aria-label={`Mark step ${index + 1} ${doneSteps[index] ? "not done" : "done"}`} aria-pressed={doneSteps[index] ?? false} onClick={() => toggleDone(index)}>{doneSteps[index] ? <Check size={19}/> : <span/>}</button></li>)}</ol>
             <div className="step-voice-controls"><button type="button" className="step-read-button" onClick={() => sayCurrentStep(false)}><Volume2 size={18}/> Read this step</button><button type="button" className={handsFree ? "step-handsfree-button active" : "step-handsfree-button"} onClick={toggleHandsFree}>{handsFree ? <VolumeX size={18}/> : <Volume2 size={18}/>} {handsFree ? "Stop hands-free" : "Hands-free"}</button><button type="button" className="step-next-button" disabled={currentStep >= steps.length - 1} onClick={nextStep}>Next step <ChevronRight size={19}/></button></div>
-            {selectedType === "chest-pain" && <section className="medicine-check emergency-card" aria-label="Aspirin safety check"><div><span className="section-kicker">MEDICINE CHECK · ASK FIRST</span><h3>Any known aspirin allergy?</h3><p>{storedAspirinAllergy ? `Stored profile lists an aspirin allergy for ${selectedCrew?.name ?? "this person"}. Do not suggest aspirin.` : knownAllergies === null && selectedCrew ? "No allergy list is stored for this crew member. Confirm directly; if uncertain, do not use aspirin." : "Do not offer a pill until the quick checks and actual kit label are confirmed."}</p></div>
+            {selectedType === "chest-pain" && <section className="medicine-check emergency-card" aria-label="Aspirin safety check"><div><span className="section-kicker">MEDICINES FROM THE KIT · ASK FIRST</span><h3>Any known aspirin allergy?</h3><p>{storedAspirinAllergy ? `Stored profile lists an aspirin allergy for ${selectedCrew?.name ?? "this person"}. Do not suggest aspirin.` : knownAllergies === null && selectedCrew ? "No allergy list is stored for this crew member. Confirm directly; if uncertain, do not use aspirin." : "Do not offer a pill until the quick checks and actual kit label are confirmed."}</p></div>
               {!storedAspirinAllergy && <div className="medicine-choice-row">{([{ value: "NO", label: "No known allergy" }, { value: "YES", label: "Allergic / unsure" }] as Array<{ value: QuickAnswer; label: string }>).map(({ value, label }) => <button key={label} type="button" className={`medicine-choice ${allergy === value ? "selected" : ""}`} aria-pressed={allergy === value} onClick={() => { setAllergy(value); setKitAspirinConfirmed(false); }}>{label}</button>)}</div>}
               {allergy === "NO" && !storedAspirinAllergy && <><div className="medicine-choice-row"><span>Conscious and able to chew/swallow?</span>{([{ value: "YES", label: "Yes" }, { value: "NO", label: "No" }] as Array<{ value: QuickAnswer; label: string }>).map(({ value, label }) => <button key={label} type="button" className={`medicine-choice ${canSwallow === value ? "selected" : ""}`} aria-pressed={canSwallow === value} onClick={() => setCanSwallow(value)}>{label}</button>)}</div><div className="medicine-choice-row"><span>Told by a health professional to avoid aspirin?</span>{([{ value: "NO", label: "No" }, { value: "YES", label: "Yes / unsure" }] as Array<{ value: QuickAnswer; label: string }>).map(({ value, label }) => <button key={label} type="button" className={`medicine-choice ${toldToAvoidAspirin === value ? "selected" : ""}`} aria-pressed={toldToAvoidAspirin === value} onClick={() => setToldToAvoidAspirin(value)}>{label}</button>)}</div><div className="kit-reference"><strong>Illustrative onboard kit list · not verified</strong><p>{SAMPLE_MEDICAL_KIT.items[0].name} · Adult dose: {SAMPLE_MEDICAL_KIT.items[0].dose}</p><small>{SAMPLE_MEDICAL_KIT.status}. Check the physical kit and current mission procedure.</small></div><label className="kit-confirm-row"><input type="checkbox" checked={kitAspirinConfirmed} onChange={(event) => setKitAspirinConfirmed(event.target.checked)}/> I checked this exact item in the onboard kit</label>{aspirinEligible ? <p className="medicine-eligible">Listed kit item: chewable aspirin 81 mg. For an alert adult with non-traumatic chest pain, the adult first-aid reference dose is 162–324 mg (2–4 tablets). Follow the confirmed kit label and mission procedure.</p> : <p className="medicine-no-dose">No medicine yet. Confirm the allergy, alertness, kit item, and mission procedure first; if uncertain, do not use it.</p>}</>}
               {(allergy === "YES" || storedAspirinAllergy) && <p className="medicine-no-dose">No aspirin for this person. Continue the physical steps.</p>}
             </section>}
             <p className="first-aid-safety-line">{localSafetyLine}</p><p className="first-aid-help-note">Final step: Alert mission control / contact mission medical support as soon as the channel allows. A crewmate can do this in parallel while first aid continues.</p><a className="first-aid-source" href={sourceUrl} target="_blank" rel="noreferrer">Reference: NASA / first-aid guidance</a>
           </section><BodyTrendDashboard mode="emergency" person={selectedCrew} records={selectedCrew ? history : []} assessmentStatus={selectedCrew ? selectedAssessment?.status : null} emergencyType={selectedType} onEmergencyPartClick={() => stepsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}/></div>
+          <section className="emergency-card emergency-followup-card"><span className="section-kicker">AFTER FIRST AID</span><h2>Medicines from the kit</h2>{selectedType === "chest-pain" ? <><p>The only listed sample-kit medicine is for the chest-pain guidance. Check the allergy, alertness, swallowing, and exact physical kit item in the medicine check above before considering it.</p><p><strong>{SAMPLE_MEDICAL_KIT.items[0].name}</strong><br/>{SAMPLE_MEDICAL_KIT.items[0].dose}</p><small>{SAMPLE_MEDICAL_KIT.status}. This is a simulated list, not a verified spacecraft inventory.</small></> : <><p>No medicine in the kit for this — do the physical steps.</p><p>Stored allergies: {knownAllergies?.length ? knownAllergies.join(", ") : selectedCrew ? "No allergy information is stored; confirm directly." : "Select a crew member to check stored allergies."}</p></>}</section>
+          <section className="emergency-card emergency-followup-card"><span className="section-kicker">FOLLOW-UP CHECKS</span><h2>Tests we should do</h2><p>Enter only results you have actually measured or recorded. The result and time are optional until you are ready to analyze.</p><div className="emergency-test-list">{emergencyTests.map((test) => <div className="emergency-test-row" key={test.id}><label><strong>{test.label}</strong><input value={testResults[test.id]?.result ?? ""} onChange={(event) => setTestResults((previous) => ({ ...previous, [test.id]: { result: event.target.value, time: previous[test.id]?.time ?? "" } }))} placeholder={test.placeholder}/></label><label><span>Time</span><input type="datetime-local" value={testResults[test.id]?.time ?? ""} onChange={(event) => setTestResults((previous) => ({ ...previous, [test.id]: { result: previous[test.id]?.result ?? "", time: event.target.value } }))}/></label></div>)}</div><button type="button" className="step-next-button" disabled={analyzingTests || !Object.values(testResults).some((entry) => entry.result.trim())} onClick={() => void analyzeTestResults()}>{analyzingTests ? "Analyzing results…" : "Analyze my results"}</button></section>
+          <section className="emergency-card emergency-followup-card"><span className="section-kicker">SAFETY NOTES</span><h2>Precautions</h2><div className="emergency-precaution-grid"><div><h3>What not to do</h3><ul>{steps.filter((step) => /do not|don't|avoid|never|no medicine/i.test(`${step.title} ${step.instruction}`)).slice(0, 5).map((step) => <li key={step.title}>{step.instruction}</li>)}{!steps.some((step) => /do not|don't|avoid|never|no medicine/i.test(`${step.title} ${step.instruction}`)) && <li>Do not use a medicine unless it is listed, allergy-checked, and confirmed in the kit.</li>}</ul></div><div><h3>What to watch for</h3><ul>{steps.filter((step) => /watch|urgent|danger|breathing|worsen|immediately|alert/i.test(`${step.title} ${step.instruction}`)).slice(0, 5).map((step) => <li key={step.title}>{step.instruction}</li>)}{!steps.some((step) => /watch|urgent|danger|breathing|worsen|immediately|alert/i.test(`${step.title} ${step.instruction}`)) && <li>Watch for any change in the person's condition and follow the mission procedure.</li>}</ul></div></div></section>
+          {updatedAnalysis && <section className="emergency-card emergency-followup-card emergency-ai-update" aria-live="polite"><div className="emergency-ai-update-heading"><span className={`status-badge ${updatedAnalysis.verdict === "ACT_NOW" ? "status-red" : updatedAnalysis.verdict === "WATCH" ? "status-amber" : "status-green"}`}>{updatedAnalysis.verdict === "ACT_NOW" ? "Act now" : updatedAnalysis.verdict === "WATCH" ? "Watch" : "All clear"}</span><span>SIMULATED AI REVIEW</span></div><h2>Updated after your new test results — here is what changed</h2><p>{updatedAnalysis.whatThisCouldMean}</p><h3>Updated next steps</h3><ol>{updatedAnalysis.whatToDoNow.map((item, index) => <li key={index}>{item}</li>)}</ol><h3>Updated precautions · what to watch for</h3><ul>{updatedAnalysis.watchOutFor.map((item, index) => <li key={index}>{item}</li>)}</ul><h3>When to get help immediately</h3><p>{updatedAnalysis.whenToGetHelpImmediately}</p><small>{localSafetyLine}</small></section>}
         </>}
 
         <section className="emergency-help-actions emergency-card"><div><strong>Use another channel in parallel</strong><p>Ask a crewmate to contact mission control while first aid continues. No alert is transmitted by this app.</p></div><button className="emergency-screen-submit emergency-support-button" type="button" onClick={requestMedicalSupport}>{requestStatus === "LOCAL_REQUEST_RECORDED" ? "Request recorded on this screen" : "Record a local support request"}</button></section>
