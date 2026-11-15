@@ -7,6 +7,7 @@ import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import { EmergencyAssistant, type EmergencyContext } from "@/components/emergency/EmergencyAssistant";
 import type { HealthRecord } from "@/types";
 import { useMicrophoneLevel } from "@/hooks/useMicrophoneLevel";
+import { cancelNovaSpeech, speakText } from "@/hooks/useNovaVoice";
 
 import { CLARIFY_HEALTH_QUESTION, isTriageHealthQuestion, vagueHealthClarification } from "@/lib/ai/chat-behavior";
 import { useRetryCountdown } from "@/hooks/useRetryCountdown";
@@ -51,7 +52,6 @@ export function AIHomeExperience() {
   const [loading, setLoading] = useState(false);
   const [listening, setListening] = useState(false);
   const micLevel = useMicrophoneLevel();
-  const [speaking, setSpeaking] = useState(false);
   const [error, setError] = useState("");
   const [canRetry, setCanRetry] = useState(false);
   const [retryPayload, setRetryPayload] = useState<{ displayPrompt: string; sentPrompt: string; history: ChatMessage[]; astronautId: string | null } | null>(null);
@@ -82,7 +82,7 @@ export function AIHomeExperience() {
     return () => window.clearTimeout(timer);
   }, [astronautId]);
   useEffect(() => { if (micLevel.micOff && listening) { recognition.current?.stop(); setListening(false); } }, [micLevel.micOff, listening]);
-  useEffect(() => () => { recognition.current?.stop(); micLevel.stop(); window.speechSynthesis?.cancel(); }, [micLevel.stop]);
+  useEffect(() => () => { recognition.current?.stop(); micLevel.stop(); cancelNovaSpeech(); }, [micLevel.stop]);
 
   const clearConversation = () => { setAnswer(null); setMessages([]); setQuestion(""); setError(""); setCanRetry(false); setRetryPayload(null); retryCountdown.clear(); };
   const selectAstronaut = (id: string) => {
@@ -175,17 +175,16 @@ export function AIHomeExperience() {
     return { astronautId: astronaut.id, callsign: astronaut.callsign, assessment: latestAssessment?.status ?? "NOT AVAILABLE", latestAssessment: latestAssessment ? { ...latestAssessment, createdAt: new Date(latestAssessment.createdAt).toISOString() } : null, activeAlerts: mergedAlerts.map((alert) => ({ ...alert, createdAt: new Date(alert.createdAt).toISOString() })), activeCriticalAlerts: mergedAlerts.filter((alert) => alert.status === "ACTIVE" && alert.severity === "CRITICAL").map(({ title, message }) => ({ title, message })), lastMeasuredAt: records.at(-1) ? new Date(records.at(-1)!.recordedAt).toISOString() : null, healthRecords: records, isSimulated: true };
   }, [astronaut, localRecords, localAssessment, localAlerts]);
   const speakAnswer = (spokenAnswer = answer) => {
-    if (!spokenAnswer || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel(); const a = spokenAnswer.analysis;
-    const speech = new SpeechSynthesisUtterance(`${a.verdict.replace("_", " ")}. What this could mean. ${a.whatThisCouldMean}. What to do right now. ${a.whatToDoNow.join(". ")}. Watch out for. ${a.watchOutFor.join(". ")}. When to get help immediately. ${a.whenToGetHelpImmediately}`);
-    speech.onstart = () => setSpeaking(true); speech.onend = () => setSpeaking(false); speech.onerror = () => setSpeaking(false); window.speechSynthesis.speak(speech);
+    if (!spokenAnswer) return;
+    const a = spokenAnswer.analysis;
+    speakText(`${a.verdict.replace("_", " ")}. What this could mean. ${a.whatThisCouldMean}. What to do right now. ${a.whatToDoNow.join(". ")}. Watch out for. ${a.watchOutFor.join(". ")}. When to get help immediately. ${a.whenToGetHelpImmediately}`);
   };
 
   return <main className="app-shell landing-shell">
     <div className="ambient ambient-one"/><div className="ambient ambient-two"/>
     <div className="landing-content">
       <div className="landing-badge"><span className="live-dot"/><span>NASA SPACE APPS CHALLENGE 2026</span><span className="mission-pill-sep"/><span>DEMO BUILD</span></div>
-      <header className={`landing-hero ${loading || speaking ? "is-active" : ""}`}>
+      <header className={`landing-hero ${loading ? "is-active" : ""}`}>
         <div className="doctor-agent" role="img" aria-label="Friendly CrewCare doctor agent">
           <span className="agent-ring agent-ring-one"/><span className="agent-ring agent-ring-two"/>
           <svg viewBox="0 0 120 120" aria-hidden="true" className="doctor-agent-svg">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Settings, VolumeX, Volume2 } from "lucide-react";
 import styles from "./CrewCareWelcome.module.css";
@@ -17,15 +17,26 @@ export function CrewCareWelcome() {
   const [waving, setWaving] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const spokRef = useRef(false);
 
-  useEffect(() => { setMounted(true); }, []);
-
-  // Speak welcome on mount (waits for voices internally).
   useEffect(() => {
-    const id = window.setTimeout(() => nova.speak(welcomeLine), 120);
-    return () => { window.clearTimeout(id); nova.cancel(); };
+    setMounted(true);
+    // Try autoplay immediately. On desktop with voices already loaded this fires at once.
+    // On mobile / first load the browser blocks it — pendingTap becomes true
+    // and the hook fires speech the instant the user touches anything.
+    nova.speak(welcomeLine);
+    return () => { nova.cancel(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Speak the welcome the moment the user interacts with any part of this page
+  // (covers mobile where autoplay is always blocked).
+  const ensureSpoken = () => {
+    if (spokRef.current) return;
+    if (nova.speaking) { spokRef.current = true; return; }
+    spokRef.current = true;
+    nova.speak(welcomeLine);
+  };
 
   const dismiss = () => {
     nova.cancel();
@@ -34,8 +45,9 @@ export function CrewCareWelcome() {
 
   const handleNovaTap = () => {
     setWaving(true);
+    spokRef.current = true;
     window.setTimeout(() => setWaving(false), 900);
-    nova.speak(helloLine);
+    nova.speak(welcomeLine);
   };
 
   const toggleMute = () => nova.setMuted(!nova.muted);
@@ -46,6 +58,7 @@ export function CrewCareWelcome() {
       role="dialog"
       aria-modal="true"
       aria-label="Welcome to CrewCare"
+      onClick={ensureSpoken}
     >
       <div className={styles.stars} aria-hidden="true">
         {Array.from({ length: 18 }, (_, index) => (
@@ -98,11 +111,7 @@ export function CrewCareWelcome() {
           </h1>
         </div>
 
-        <div className={styles.greeting} aria-live="polite">
-          {welcomeLine}
-        </div>
-
-        <p className={styles.tapHint}>Tap Nova to hear her greeting again.</p>
+        <p className={styles.tapHint}>Tap Nova to hear her greeting.</p>
 
         <div className={styles.actions}>
           <button className={styles.enter} onClick={dismiss}>
@@ -132,9 +141,9 @@ export function CrewCareWelcome() {
           </button>
         </div>
 
-        {mounted && nova.pendingTap && !nova.muted && (
+        {mounted && nova.pendingTap && !nova.muted && !nova.speaking && (
           <p className={styles.speechNote}>
-            Tap anywhere to hear Nova's greeting.
+            👆 Tap Nova to hear the greeting.
           </p>
         )}
         {mounted && nova.unsupported && (

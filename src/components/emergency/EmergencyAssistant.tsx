@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AlertOctagon, ArrowLeft, Check, ChevronRight, Clipboard, Mic, MicOff, Send, Settings, Volume2, VolumeX } from "lucide-react";
@@ -169,19 +169,32 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     const timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - (startedClock.current ?? Date.now())) / 1000)), 1000);
     return () => window.clearInterval(timer);
   }, [open]);
-  useEffect(() => () => { recognition.current?.abort(); micLevel.stop(); nova.cancel(); }, [micLevel.stop, nova]);
+  useEffect(() => () => { recognition.current?.abort(); micLevel.stop(); nova.cancel(); }, [micLevel.stop, nova.cancel]);
 
-  // Scroll to steps panel and speak step 0 whenever a new emergency type is chosen.
-  // Using useEffect ensures the DOM has rendered before we scroll.
+  // Scroll the emergency overlay itself. The steps card used to sit in a
+  // translated grid, and scrollIntoView stopped short of that card.
+  const scrollToSteps = () => {
+    const panel = stepsPanelRef.current;
+    if (!panel) return;
+    const scroller = panel.closest(".emergency-screen");
+    if (!(scroller instanceof HTMLElement)) {
+      panel.scrollIntoView({ behavior: "auto", block: "start" });
+      return;
+    }
+    const header = scroller.querySelector(".emergency-header");
+    const headerHeight = header instanceof HTMLElement ? header.offsetHeight : 0;
+    const top = panel.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - headerHeight - 8;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && scroller.contains(active) && !panel.contains(active)) active.blur();
+    scroller.scrollTop = Math.max(0, top);
+  };
   const lastScrolledTypeRef = useRef<EmergencyType | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selectedType || selectedType === lastScrolledTypeRef.current) return;
     lastScrolledTypeRef.current = selectedType;
-    // Small timeout lets React flush the new panel into the DOM first.
-    window.setTimeout(() => {
-      stepsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 60);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    scrollToSteps();
+    const followUp = window.setTimeout(scrollToSteps, 80);
+    return () => window.clearTimeout(followUp);
   }, [selectedType]);
 
   // Auto-speak whenever the current step index changes.
@@ -201,7 +214,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     nova.speak(value);
     setVoiceState("SPEAKING");
     // Chain mode is handled by the step-advance effects below.
-  }, [nova]);
+  }, [nova.speak]);
   const sayCurrentStep = useCallback((stepIndex?: number) => {
     const idx = stepIndex ?? currentStep;
     if (!steps[idx]) return;
@@ -213,7 +226,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     welcomePending.current = false;
     nova.speak("What happened? Tell me, or tap a situation below.");
     setVoiceState("SPEAKING");
-  }, [nova]);
+  }, [nova.speak]);
   useEffect(() => {
     if (!fullPage) return;
     const timer = window.setTimeout(speakWelcome, 0);
@@ -469,7 +482,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     nova.setMuted(next);
     if (!next) { if (selectedType) sayCurrentStep(); else speakWelcome(); }
   };
-  const close = useCallback(() => { recognition.current?.abort(); stopMicrophone(); nova.cancel(); handsFreeActive.current = false; welcomePending.current = false; setHandsFree(false); setVoiceState("IDLE"); if (fullPage) router.push(exitHref); else setOpen(false); }, [exitHref, fullPage, nova, router, stopMicrophone]);
+  const close = useCallback(() => { recognition.current?.abort(); stopMicrophone(); nova.cancel(); handsFreeActive.current = false; welcomePending.current = false; setHandsFree(false); setVoiceState("IDLE"); if (fullPage) router.push(exitHref); else setOpen(false); }, [exitHref, fullPage, nova.cancel, router, stopMicrophone]);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -479,7 +492,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
     document.body.style.overflow = "hidden";
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
-    dialog?.focus();
+    dialog?.focus({ preventScroll: true });
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Tab" || !dialog) return;
       const focusable = Array.from(dialog.querySelectorAll<HTMLElement>('a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])'));
@@ -526,7 +539,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
         </section>
 
         <section className="emergency-options-section" aria-label="Emergency shortcuts"><h2>Or tap the closest situation — shortcuts</h2>
-          <div className="emergency-triage-types">{EMERGENCY_TYPES.map((item) => <button key={item.id} type="button" className={`emergency-type-card ${selectedType === item.id ? "selected" : ""}`} aria-pressed={selectedType === item.id} onClick={() => { chooseEmergency(item.id); if (item.id === "other") window.setTimeout(() => novaInputRef.current?.focus(), 0); }}><span aria-hidden="true">{item.symbol}</span>{item.label}</button>)}</div>
+          <div className="emergency-triage-types">{EMERGENCY_TYPES.map((item) => <button key={item.id} type="button" className={`emergency-type-card ${selectedType === item.id ? "selected" : ""}`} aria-pressed={selectedType === item.id} onMouseDown={(event) => event.preventDefault()} onClick={() => { chooseEmergency(item.id); if (item.id === "other") window.setTimeout(() => novaInputRef.current?.focus({ preventScroll: true }), 0); }}><span aria-hidden="true">{item.symbol}</span>{item.label}</button>)}</div>
         </section>
 
         <section className="emergency-people-section emergency-card" aria-label="Choose the crew member who needs help"><h2>Who needs help?</h2><p>Select a person if known. First aid starts even when nobody is selected.</p>
@@ -559,7 +572,7 @@ export function EmergencyAssistant({ context, fullPage = false, exitHref = "/" }
               {(allergy === "YES" || storedAspirinAllergy) && <p className="medicine-no-dose">No aspirin for this person. Continue the physical steps.</p>}
             </section>}
             <p className="first-aid-safety-line">{localSafetyLine}</p><p className="first-aid-help-note">Final step: Alert mission control / contact mission medical support as soon as the channel allows. A crewmate can do this in parallel while first aid continues.</p><a className="first-aid-source" href={sourceUrl} target="_blank" rel="noreferrer">Reference: NASA / first-aid guidance</a>
-          </section><BodyTrendDashboard mode="emergency" person={selectedCrew} records={selectedCrew ? history : []} assessmentStatus={selectedCrew ? selectedAssessment?.status : null} emergencyType={selectedType} onEmergencyPartClick={() => stepsPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}/></div>
+          </section><BodyTrendDashboard mode="emergency" person={selectedCrew} records={selectedCrew ? history : []} assessmentStatus={selectedCrew ? selectedAssessment?.status : null} emergencyType={selectedType} onEmergencyPartClick={scrollToSteps}/></div>
           <section className="emergency-card emergency-followup-card"><span className="section-kicker">AFTER FIRST AID</span><h2>Medicines from the kit</h2><p>Simulated sample kit — not verified onboard inventory.</p>{selectedType === "chest-pain" ? <><p>The only listed sample-kit medicine is for the chest-pain guidance. Check the allergy, alertness, swallowing, and exact physical kit item in the medicine check above before considering it.</p><p><strong>{SAMPLE_MEDICAL_KIT.items[0].name}</strong><br/>{SAMPLE_MEDICAL_KIT.items[0].dose}</p><small>{SAMPLE_MEDICAL_KIT.status}. This is a simulated list, not a verified spacecraft inventory.</small></> : <><p>No medicine in the kit for this — do the physical steps.</p><p>Stored allergies: {knownAllergies?.length ? knownAllergies.join(", ") : selectedCrew ? "No allergy information is stored; confirm directly." : "Select a crew member to check stored allergies."}</p></>}</section>
           <section className="emergency-card emergency-followup-card"><span className="section-kicker">FOLLOW-UP CHECKS</span><h2>Tests we should do</h2><p>Enter only results you have actually measured or recorded. The result and time are optional until you are ready to analyze.</p><div className="emergency-test-list">{emergencyTests.map((test) => <div className="emergency-test-row" key={test.id}><label><strong>{test.label}</strong><input value={testResults[test.id]?.result ?? ""} onChange={(event) => setTestResults((previous) => ({ ...previous, [test.id]: { result: event.target.value, time: previous[test.id]?.time ?? "" } }))} placeholder={test.placeholder}/></label><label><span>Time</span><input type="datetime-local" value={testResults[test.id]?.time ?? ""} onChange={(event) => setTestResults((previous) => ({ ...previous, [test.id]: { result: previous[test.id]?.result ?? "", time: event.target.value } }))}/></label></div>)}</div><button type="button" className="step-next-button" disabled={analyzingTests || !Object.values(testResults).some((entry) => entry.result.trim())} onClick={() => void analyzeTestResults()}>{analyzingTests ? "Analyzing results…" : "Analyze my results"}</button></section>
           <section className="emergency-card emergency-followup-card"><span className="section-kicker">SAFETY NOTES</span><h2>Precautions</h2><div className="emergency-precaution-grid"><div><h3>What not to do</h3><ul>{steps.filter((step) => /do not|don't|avoid|never|no medicine/i.test(`${step.title} ${step.instruction}`)).slice(0, 5).map((step) => <li key={step.title}>{step.instruction}</li>)}{!steps.some((step) => /do not|don't|avoid|never|no medicine/i.test(`${step.title} ${step.instruction}`)) && <li>Do not use a medicine unless it is listed, allergy-checked, and confirmed in the kit.</li>}</ul></div><div><h3>What to watch for</h3><ul>{steps.filter((step) => /watch|urgent|danger|breathing|worsen|immediately|alert/i.test(`${step.title} ${step.instruction}`)).slice(0, 5).map((step) => <li key={step.title}>{step.instruction}</li>)}{!steps.some((step) => /watch|urgent|danger|breathing|worsen|immediately|alert/i.test(`${step.title} ${step.instruction}`)) && <li>Watch for any change in the person&apos;s condition and follow the mission procedure.</li>}</ul></div></div></section>

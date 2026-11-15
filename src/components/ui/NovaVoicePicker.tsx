@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { Volume2 } from "lucide-react";
 import type { NovaSpeed } from "@/hooks/useNovaVoice";
-import { SPEED_RATES } from "@/hooks/useNovaVoice";
+import { speakNova, SPEED_RATES } from "@/hooks/useNovaVoice";
 
 const PREVIEW_LINE = "Hello, I'm Nova. I'll look after your health out here.";
 
@@ -25,15 +25,9 @@ export function NovaVoicePicker({ voices, selectedVoiceUri, speed, onVoiceChange
 
   const preview = (voice: SpeechSynthesisVoice) => {
     if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(PREVIEW_LINE);
-    u.voice = voice;
-    u.rate = SPEED_RATES[speed];
-    u.pitch = 1.03;
     setPreviewingUri(voice.voiceURI);
-    u.onend = () => setPreviewingUri(null);
-    u.onerror = () => setPreviewingUri(null);
-    window.speechSynthesis.speak(u);
+    const clear = () => setPreviewingUri((current) => current === voice.voiceURI ? null : current);
+    speakNova(PREVIEW_LINE, { voice, rate: SPEED_RATES[speed], onEnd: clear, onBlocked: clear });
   };
 
   if (!voices.length) {
