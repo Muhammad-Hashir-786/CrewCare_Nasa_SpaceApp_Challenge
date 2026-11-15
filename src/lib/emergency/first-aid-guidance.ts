@@ -25,8 +25,197 @@ export const EMERGENCY_TYPES: Array<{ id: EmergencyType; label: string; symbol: 
 // not an assertion about any real vehicle's medical kit inventory.
 export const SAMPLE_MEDICAL_KIT = {
   status: "SIMULATED · inventory not verified for this spacecraft",
-  items: [{ id: "aspirin-81-chewable", name: "Aspirin (acetylsalicylic acid), chewable 81 mg", dose: "Adults: 162–324 mg (2–4 × 81 mg tablets); a 325 mg tablet is an alternative only if that exact item is listed." }],
+  items: [
+    { id: "aspirin-81-chewable", name: "Aspirin (acetylsalicylic acid), chewable 81 mg", dose: "Adults with non-traumatic chest pain who pass the allergy, alertness, and swallow checks: 162–324 mg (2–4 × 81 mg tablets). Follow the kit label." },
+    { id: "acetaminophen-500", name: "Acetaminophen 500 mg tablets", dose: "Alert adults who can swallow: 500–1000 mg once, then follow the kit label. Skip if a liver problem is known or the person cannot swallow." },
+    { id: "ibuprofen-200", name: "Ibuprofen 200 mg tablets", dose: "Alert adults who can swallow, are not bleeding, and are not dehydrated: 200–400 mg with water, then follow the kit label." },
+    { id: "diphenhydramine-25", name: "Diphenhydramine 25 mg tablets", dose: "Alert adults who can swallow, for itching or a mild allergic reaction without airway swelling: 25–50 mg, then follow the kit label." },
+    { id: "antibiotic-ointment", name: "Antibiotic ointment", dose: "A thin layer on a small, clean surface wound only. Do not use it on deep wounds, large burns, or anything stuck to the skin." },
+    { id: "ors", name: "Oral rehydration salts", dose: "Small sips if the person is alert, can swallow, and is not vomiting continuously. Follow the packet label." },
+  ],
 } as const;
+
+export type EmergencyTestSpec = { id: string; label: string; placeholder: string };
+export type KitMedicineAdvice = { name: string; guidance: string };
+export type CustomEmergencyPlan = {
+  label: string;
+  summary: string;
+  steps: FirstAidStep[];
+  tests: EmergencyTestSpec[];
+  medicines: KitMedicineAdvice[];
+};
+
+const VITALS_TEST: EmergencyTestSpec = { id: "repeat-reading", label: "Repeat the relevant reading", placeholder: "Enter the re-check result" };
+
+export function medicinesAllowed(medicines: KitMedicineAdvice[], allergies: string[] | null | undefined): KitMedicineAdvice[] {
+  const blocked = (allergies ?? []).join(" ").toLowerCase();
+  if (!blocked.trim()) return medicines;
+  return medicines.filter((item) => {
+    const name = item.name.toLowerCase();
+    if (name.includes("aspirin") && blocked.includes("aspirin")) return false;
+    if (name.includes("ibuprofen") && (blocked.includes("ibuprofen") || blocked.includes("nsaid"))) return false;
+    if (name.includes("acetaminophen") && (blocked.includes("acetaminophen") || blocked.includes("paracetamol"))) return false;
+    if (name.includes("diphenhydramine") && (blocked.includes("diphenhydramine") || blocked.includes("benadryl"))) return false;
+    return true;
+  });
+}
+
+function kitItem(id: string, guidance: string): KitMedicineAdvice {
+  const item = SAMPLE_MEDICAL_KIT.items.find((entry) => entry.id === id);
+  return { name: item?.name ?? id, guidance };
+}
+
+/** Immediate on-screen plan for a description that does not match a shortcut. AI may replace it. */
+export function buildLocalCustomPlan(description: string, allergies?: string[] | null): CustomEmergencyPlan {
+  const value = description.toLowerCase();
+  const report = description.trim().slice(0, 180);
+  let plan: CustomEmergencyPlan;
+  if (/headache|head ache|migraine|head pain|head hurts/.test(value)) {
+    plan = {
+      label: "Headache",
+      summary: "Rest, record the headache, and check for danger signs before any kit medicine.",
+      steps: [
+        { title: "Sit or lie down", instruction: "Help them rest in a quiet spot. Dim bright lights if that is easy, and stay with them." },
+        { title: "Note what changed", instruction: `Write down when the headache started and what they reported: "${report}". Note vomiting, vision change, weakness, or confusion.` },
+        { title: "Check danger signs", instruction: "A sudden worst-ever headache, new confusion, weakness, trouble speaking, or vision loss needs the urgent steps for that problem and a report to the flight surgeon." },
+        { title: "Fluids only if safe", instruction: "If they are alert and not vomiting, offer small sips of water. Do not give anything by mouth if they are drowsy or confused." },
+        { title: "Medicine only after checks", instruction: "If they are alert and can swallow, a listed pain tablet may be considered after allergy checks. If unsure, skip medicine and keep watching them." },
+      ],
+      tests: [
+        VITALS_TEST,
+        { id: "blood-pressure", label: "Blood pressure", placeholder: "e.g. 118/76 mmHg" },
+        { id: "vision-check", label: "Vision check", placeholder: "Same as usual, blurred, or missing" },
+      ],
+      medicines: [kitItem("acetaminophen-500", "For an alert adult who can swallow and has no acetaminophen problem: one 500–1000 mg dose, then follow the kit label.")],
+    };
+  } else if (/nause|vomit|throwing up|stomach|diarrh|belly|abdominal/.test(value)) {
+    plan = {
+      label: "Nausea or stomach upset",
+      summary: "Keep them comfortable, replace sips of fluid if they can swallow, and watch for dehydration or bleeding.",
+      steps: [
+        { title: "Rest upright or on their side", instruction: "If they are vomiting, keep them on their side so they do not choke. Stay with them." },
+        { title: "Note the vomit or pain", instruction: "Record when it started, whether there is blood, black stool, severe belly pain, or a swollen hard abdomen." },
+        { title: "Small sips if alert", instruction: "If they are alert and not vomiting continuously, give small sips of oral rehydration or water. Stop if vomiting returns." },
+        { title: "Do not give solid food yet", instruction: "Wait until vomiting eases. Do not give a pain tablet for severe undiagnosed belly pain." },
+        { title: "Watch and report", instruction: "Confusion, fainting, nonstop vomiting, or blood in vomit needs a prompt report to mission medical support while you stay with them." },
+      ],
+      tests: [
+        { id: "temperature", label: "Temperature", placeholder: "Enter temperature in °C" },
+        { id: "blood-pressure", label: "Blood pressure", placeholder: "e.g. 118/76 mmHg" },
+        { id: "glucose", label: "Blood glucose", placeholder: "Enter blood glucose in mg/dL" },
+      ],
+      medicines: [kitItem("ors", "Small sips of oral rehydration if they are alert and not vomiting continuously. Follow the packet label.")],
+    };
+  } else if (/allerg|rash|hives|itch|swelling|swollen/.test(value)) {
+    plan = {
+      label: "Possible allergic reaction",
+      summary: "Move them away from the trigger and watch the airway. Mild itching can use a listed antihistamine; airway swelling cannot wait on a tablet.",
+      steps: [
+        { title: "Stop the exposure", instruction: "Move them away from the suspected food, material, or chemical if it is safe to do so. Do not send them off alone." },
+        { title: "Watch the airway", instruction: "Look for lip or tongue swelling, noisy breathing, trouble swallowing, or a spreading rash. If breathing is getting worse, use the breathing-trouble steps and report immediately." },
+        { title: "Keep them sitting up", instruction: "If they are breathing, let them sit in the easiest position. If they collapse or stop breathing normally, start the CPR steps." },
+        { title: "Tablet only if the airway is clear", instruction: "For itching or a mild rash in an alert person who can swallow, a listed antihistamine may be used after an allergy check. Do not rely on a tablet if the throat is swelling." },
+        { title: "Report what they were exposed to", instruction: "Tell mission medical support what they touched or ate, when the rash or swelling started, and whether breathing changed." },
+      ],
+      tests: [
+        { id: "oxygen", label: "Oxygen saturation", placeholder: "Enter SpO₂ in %" },
+        { id: "breathing-check", label: "Breathing check", placeholder: "Easy, noisy, or getting worse" },
+      ],
+      medicines: [kitItem("diphenhydramine-25", "Only if they are alert, can swallow, and do not have airway swelling: 25–50 mg, then follow the kit label.")],
+    };
+  } else if (/dizzy|lightheaded|light-headed|vertigo|room spinning/.test(value)) {
+    plan = {
+      label: "Dizziness",
+      summary: "Get them safe and still, then re-check blood pressure, glucose, and oxygen before deciding on fluids.",
+      steps: [
+        { title: "Sit or lie down now", instruction: "Help them down before they fall. Keep the area clear and stay beside them." },
+        { title: "Check responsiveness", instruction: "If they become unresponsive or are not breathing normally, switch to the collapsed steps and start those immediately." },
+        { title: "Note associated symptoms", instruction: "Ask about chest pain, bleeding, headache, vomiting, new weakness, or a recent spacewalk. Record when the dizziness started." },
+        { title: "Fluids only if alert", instruction: "If they are alert, not vomiting, and not told to restrict fluids, offer small sips of water." },
+        { title: "Re-check and report", instruction: "Repeat how they feel after they have been still. Report fainting, chest pain, or weakness to the flight surgeon." },
+      ],
+      tests: [
+        { id: "blood-pressure", label: "Blood pressure", placeholder: "e.g. 118/76 mmHg" },
+        { id: "glucose", label: "Blood glucose", placeholder: "Enter blood glucose in mg/dL" },
+        { id: "oxygen", label: "Oxygen saturation", placeholder: "Enter SpO₂ in %" },
+      ],
+      medicines: [kitItem("ors", "Only if they are alert and can swallow: small sips, then follow the packet label. Skip medicine if they might faint again.")],
+    };
+  } else if (/cut|scrape|wound|lacerat|skin tear/.test(value)) {
+    plan = {
+      label: "Cut or wound",
+      summary: "Control bleeding with pressure, clean a small wound, and cover it. Use ointment only on a minor surface cut.",
+      steps: [
+        { title: "Press on the bleeding", instruction: "Put on gloves if you have them. Press a clean cloth on the wound and do not keep lifting it to look." },
+        { title: "If bleeding is heavy", instruction: "Keep pressure. If blood soaks through or will not stop, switch to the Heavy bleeding steps and keep pressing." },
+        { title: "Clean a small wound", instruction: "When bleeding is controlled and the cut is small, rinse with clean water. Do not scrub a deep wound or pull out an embedded object." },
+        { title: "Cover it", instruction: "Use a clean dressing. A thin layer of listed antibiotic ointment is only for a small surface cut, not a deep or dirty wound." },
+        { title: "Watch and report", instruction: "Note increasing pain, redness, numbness, or bleeding that restarts. Tell mission medical support the location and when it happened." },
+      ],
+      tests: [
+        { id: "bleeding-check", label: "Bleeding re-check", placeholder: "Stopped, oozing, or still heavy" },
+        VITALS_TEST,
+      ],
+      medicines: [kitItem("antibiotic-ointment", "Thin layer on a small clean cut only, after bleeding is controlled. Not for deep wounds or burns.")],
+    };
+  } else if (/seizure|convuls|fitting|shaking uncontroll/.test(value)) {
+    plan = {
+      label: "Seizure",
+      summary: "Protect them from injury, do not restrain them, and check breathing when the shaking stops.",
+      steps: [
+        { title: "Keep them safe", instruction: "Move hard objects away. Do not hold them down and do not put anything in the mouth." },
+        { title: "Time the shaking", instruction: "Note when it started. Cushion the head with something soft if you can do that without restraining them." },
+        { title: "When shaking stops, check breathing", instruction: "Roll them onto their side if they are breathing. If they are not breathing normally, start the CPR steps." },
+        { title: "Do not give food, drink, or pills", instruction: "Wait until they are fully awake and can swallow. Stay with them while they recover." },
+        { title: "Report the duration", instruction: "Tell the flight surgeon how long it lasted, whether they were injured, and whether it happened before." },
+      ],
+      tests: [
+        { id: "glucose", label: "Blood glucose once they are safe", placeholder: "Enter blood glucose in mg/dL" },
+        { id: "oxygen", label: "Oxygen saturation", placeholder: "Enter SpO₂ in %" },
+      ],
+      medicines: [],
+    };
+  } else if (/pain|hurt|sore|sprain|strain|ache/.test(value)) {
+    plan = {
+      label: "Pain",
+      summary: "Support the painful area, check circulation, and consider a listed pain tablet only if they are alert and not bleeding.",
+      steps: [
+        { title: "Make them comfortable", instruction: "Help them rest in the position that eases the pain. Do not force a joint or a limb to move." },
+        { title: "Look for injury", instruction: `Check the place they described: "${report}". Look for swelling, a wound, deformity, or bleeding.` },
+        { title: "Support, do not straighten", instruction: "If a limb looks deformed or they cannot use it, treat it as a possible fracture: keep it still and use those steps." },
+        { title: "Cold pack if it is a strain", instruction: "Wrap a cold pack in cloth for a swollen sprain. Never put ice directly on skin. Skip this if the skin is broken." },
+        { title: "Pain tablet only if checks pass", instruction: "If they are alert, can swallow, and are not bleeding, a listed acetaminophen or ibuprofen dose may be used after allergy checks. Otherwise no medicine — keep supporting the area." },
+      ],
+      tests: [
+        VITALS_TEST,
+        { id: "pain-check", label: "Pain and circulation re-check", placeholder: "Better, same, or worse; skin color and feeling" },
+      ],
+      medicines: [
+        kitItem("acetaminophen-500", "Alert adult who can swallow: 500–1000 mg once, then the kit label. Prefer this if bleeding is possible."),
+        kitItem("ibuprofen-200", "Only if there is no bleeding, they are not dehydrated, and they can swallow: 200–400 mg with water."),
+      ],
+    };
+  } else {
+    plan = {
+      label: "Reported problem",
+      summary: "Start with safety, breathing, and bleeding, then re-check the measurement that matches what they described.",
+      steps: [
+        { title: "Stay with them", instruction: "Keep the person still and in a safe place. Do not leave them alone while you work out what changed." },
+        { title: "Check breathing and response", instruction: "If they are unresponsive or not breathing normally, open the Collapsed steps and start them now." },
+        { title: "Look for bleeding or a hazard", instruction: "Check for heavy bleeding, smoke, or a cabin alarm. If you find one, switch to that shortcut and follow it." },
+        { title: "Record the report", instruction: `Write the words they used and the time: "${report}". Add anything you can see, not a guessed cause.` },
+        { title: "Re-check and report", instruction: "Repeat how they look and feel. Share the description with mission medical support while you keep watching them. Do not give a medicine until the problem is clear and they can swallow." },
+      ],
+      tests: [
+        VITALS_TEST,
+        { id: "temperature", label: "Temperature", placeholder: "Enter temperature in °C" },
+        { id: "oxygen", label: "Oxygen saturation", placeholder: "Enter SpO₂ in %" },
+      ],
+      medicines: [],
+    };
+  }
+  return { ...plan, medicines: medicinesAllowed(plan.medicines, allergies) };
+}
 
 export function getSpaceRiskNote(type: EmergencyType): string | null {
   switch (type) {

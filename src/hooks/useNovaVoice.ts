@@ -286,8 +286,6 @@ export function useNovaVoice(): NovaVoiceHook {
   const selectedVoiceUriRef = useRef(selectedVoiceUri);
   const pendingTextRef = useRef<string | null>(null);
   const voicesReadyRef = useRef(false);
-  // Once the user has tapped or pressed anything, autoplay is always allowed.
-  const userInteractedRef = useRef(false);
 
   // Keep refs in sync with state.
   useEffect(() => { mutedRef.current = muted; }, [muted]);
@@ -295,36 +293,32 @@ export function useNovaVoice(): NovaVoiceHook {
   useEffect(() => { voicesRef.current = voices; }, [voices]);
   useEffect(() => { selectedVoiceUriRef.current = selectedVoiceUri; }, [selectedVoiceUri]);
 
-  // Track first user interaction globally.
-  // After this fires, speak() calls rawSpeak() directly without queuing.
-  useEffect(() => {
-    if (!speechSupported) return;
-    const mark = () => { userInteractedRef.current = true; };
-    window.addEventListener("pointerdown", mark, { once: true });
-    window.addEventListener("keydown", mark, { once: true });
-    return () => {
-      window.removeEventListener("pointerdown", mark);
-      window.removeEventListener("keydown", mark);
-    };
-  }, []);
-
   // Load the voice list on mount; wait for voiceschanged on browsers that load it async.
+  // Speech queued before that list exists (the welcome line) starts as soon as it does,
+  // without waiting for a click. A real autoplay block still sets pendingTap.
   useEffect(() => {
     if (!speechSupported) return;
+    const flushPending = () => {
+      if (!pendingTextRef.current || mutedRef.current) return;
+      const queued = pendingTextRef.current;
+      pendingTextRef.current = null;
+      rawSpeak(queued);
+    };
     waitForVoices().then((loaded) => {
       voicesReadyRef.current = true;
       setVoices(loaded);
       voicesRef.current = loaded;
-      // If a speak() was called before voices loaded AND the user has interacted, fire it now.
-      if (pendingTextRef.current && !mutedRef.current && userInteractedRef.current) {
-        const queued = pendingTextRef.current;
-        pendingTextRef.current = null;
-        rawSpeak(queued);
-      }
+      flushPending();
     });
     const onVoicesChanged = () => {
       const updated = window.speechSynthesis.getVoices();
-      if (updated.length) { setVoices(updated); voicesRef.current = updated; }
+      if (!updated.length) return;
+      setVoices(updated);
+      voicesRef.current = updated;
+      if (!voicesReadyRef.current) {
+        voicesReadyRef.current = true;
+        flushPending();
+      }
     };
     window.speechSynthesis.addEventListener("voiceschanged", onVoicesChanged);
     return () => window.speechSynthesis.removeEventListener("voiceschanged", onVoicesChanged);
@@ -335,7 +329,6 @@ export function useNovaVoice(): NovaVoiceHook {
   useEffect(() => {
     if (!pendingTap) return;
     const fire = () => {
-      userInteractedRef.current = true;
       setPendingTap(false);
       // Re-check voices synchronously at tap time.
       if (speechSupported && !voicesReadyRef.current) {
@@ -365,7 +358,7 @@ export function useNovaVoice(): NovaVoiceHook {
   /**
    * rawSpeak — the actual SpeechSynthesis call.
    * Uses only refs, so it is never stale. Not a useCallback.
-   * Call only after voices are ready and user has interacted.
+   * Call once the voice list has been queried. Autoplay blocks are reported via onBlocked.
    */
   function rawSpeak(text: string) {
     if (!speechSupported || mutedRef.current) return;
@@ -386,18 +379,21 @@ export function useNovaVoice(): NovaVoiceHook {
   const speak = useCallback((text: string) => {
     if (unsupported || mutedRef.current) return;
 
-    // Check synchronously — Chrome has voices available immediately even before
-    // the voiceschanged event fires inside the useEffect.
-    const syncVoices = speechSupported ? window.speechSynthesis.getVoices() : [];
-    if (syncVoices.length > 0 && !voicesReadyRef.current) {
-      voicesReadyRef.current = true;
-      voicesRef.current = syncVoices;
-    }
-
-    // Voices genuinely not loaded yet — queue and wait for waitForVoices() to resolve.
-    if (!voicesReadyRef.current || voicesRef.current.length === 0) {
-      pendingTextRef.current = text;
-      return;
+    // Chrome often reports an empty voice list until voiceschanged. Queue until then
+    // so the line is not dropped. Once that wait has finished, speak with the
+    // default voice even if the list is still empty.
+    if (!voicesReadyRef.current) {
+      const syncVoices = speechSupported ? window.speechSynthesis.getVoices() : [];
+      if (syncVoices.length > 0) {
+        voicesReadyRef.current = true;
+        voicesRef.current = syncVoices;
+      } else {
+        pendingTextRef.current = text;
+        return;
+      }
+    } else if (voicesRef.current.length === 0 && speechSupported) {
+      const syncVoices = window.speechSynthesis.getVoices();
+      if (syncVoices.length > 0) voicesRef.current = syncVoices;
     }
 
     // Always attempt rawSpeak immediately. If the browser blocks autoplay,
