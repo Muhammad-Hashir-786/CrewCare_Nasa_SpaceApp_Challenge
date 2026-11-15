@@ -17,6 +17,7 @@ export function CrewCareWelcome() {
   const [greeting, setGreeting] = useState(welcomeLine);
   const [speechUnavailable, setSpeechUnavailable] = useState(false);
   const timers = useRef<number[]>([]);
+  const sceneRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +50,32 @@ export function CrewCareWelcome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!visible) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const scene = sceneRef.current;
+    const focusable = () => scene ? Array.from(scene.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])')) : [];
+    focusable()[0]?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setLeaving(true);
+        window.speechSynthesis?.cancel();
+        timers.current.forEach(window.clearTimeout);
+        timers.current = [window.setTimeout(() => setVisible(false), 420)];
+        return;
+      }
+      if (event.key === "Tab") {
+        const items = focusable();
+        if (!items.length) { event.preventDefault(); scene?.focus(); return; }
+        if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items[items.length - 1].focus(); }
+        else if (!event.shiftKey && document.activeElement === items[items.length - 1]) { event.preventDefault(); items[0].focus(); }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => { window.removeEventListener("keydown", onKeyDown); previousFocus?.focus(); };
+  }, [visible]);
+
   const dismiss = (stopSpeech = true) => {
     setLeaving(true);
     if (stopSpeech && "speechSynthesis" in window) window.speechSynthesis.cancel();
@@ -74,7 +101,7 @@ export function CrewCareWelcome() {
 
   if (!visible) return null;
 
-  return <div className={`${styles.scene} ${leaving ? styles.leaving : ""}`} role="dialog" aria-modal="true" aria-label="Welcome to CrewCare">
+  return <div ref={sceneRef} tabIndex={-1} className={`${styles.scene} ${leaving ? styles.leaving : ""}`} role="dialog" aria-modal="true" aria-label="Welcome to CrewCare" onClick={(event) => { if (event.target === event.currentTarget) dismiss(); }}>
     <div className={styles.stars} aria-hidden="true">
       {Array.from({ length: 18 }, (_, index) => <i key={index} style={{ "--x": `${(index * 47 + 9) % 100}%`, "--y": `${(index * 31 + 13) % 100}%`, "--delay": `${(index % 7) * -0.8}s`, "--duration": `${7 + index % 5}s` } as CSSProperties}/>) }
     </div>

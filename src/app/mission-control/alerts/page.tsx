@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, AlertTriangle, CheckCircle } from "lucide-react";
 import { DEMO_ALERTS, DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import type { Alert, Astronaut, HealthRecord } from "@/types";
@@ -46,7 +46,7 @@ function ReadingChart({ readings, threshold, unit, label }: { readings: Reading[
   return <svg className={styles.chart} viewBox="0 0 320 112" role="img" aria-label={`${label} readings chart`}>
     {threshold != null && <><line x1="12" x2="308" y1={y(threshold)} y2={y(threshold)} className={styles.thresholdLine}/><text x="12" y={Math.max(12,y(threshold)-5)} className={styles.chartLabel}>Reference {threshold} {unit}</text></>}
     <path d={path} className={styles.chartPath}/>
-    {readings.map((reading, index) => <g key={`${reading.date}-${index}`}><circle cx={x(index)} cy={y(reading.value)} r="5" className={styles.chartPoint}/><text x={x(index)} y="108" textAnchor="middle" className={styles.dateAxis}>{dateLabel(reading.date)}</text><title>{dateLabel(reading.date)}: {reading.value}{reading.secondary != null ? `/${reading.secondary}` : ""} ${unit}</title></g>)}
+    {readings.map((reading, index) => <g key={`${reading.date}-${index}`}><circle cx={x(index)} cy={y(reading.value)} r="5" className={styles.chartPoint}/><text x={x(index)} y="108" textAnchor="middle" className={styles.dateAxis}>{dateLabel(reading.date)}</text><title>{`${dateLabel(reading.date)}: ${reading.value}${reading.secondary != null ? `/${reading.secondary}` : ""} ${unit}`}</title></g>)}
   </svg>;
 }
 
@@ -74,64 +74,95 @@ function guidanceFor(alert: Alert) {
 }
 
 export default function AlertsPage() {
-  const [alerts, setAlerts] = useState<Alert[]>(DEMO_ALERTS);
+  const [alerts, setAlerts] = useState<Alert[] | null>(null);
   const [crew, setCrew] = useState<Astronaut[]>(DEMO_ASTRONAUTS);
-  const [simulated, setSimulated] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [undoAlert, setUndoAlert] = useState<Alert | null>(null);
+  const undoTimer = useRef<number | null>(null);
+  const simulated = true;
 
-  useEffect(() => {
-    const loadLocalDemoAlerts = () => DEMO_ASTRONAUTS.flatMap((astronaut) => {
-      try { return JSON.parse(localStorage.getItem(`crewcare_demo_alerts_${astronaut.id}`) ?? "[]") as Alert[]; }
-      catch { return []; }
-    });
-    const merge = (source: Alert[]) => {
-      const byId = new Map(source.map((alert) => [alert.id, alert]));
-      for (const alert of loadLocalDemoAlerts()) byId.set(alert.id, alert);
-      setAlerts([...byId.values()].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-    };
-    merge(DEMO_ALERTS);
-    Promise.all([fetch("/api/alerts"), fetch("/api/mission-control/crew")]).then(async ([alertsResponse, crewResponse]) => {
-      if (alertsResponse.ok) merge((await alertsResponse.json()).alerts ?? []);
-      if (crewResponse.ok) {
-        const data = await crewResponse.json();
-        setSimulated(data.isSimulated === true);
-        const roster = (data.crew ?? []).map((member: Record<string, unknown>) => ({
-          ...DEMO_ASTRONAUTS.find((item) => item.id === member.id),
-          id: member.id as string,
-          name: member.name as string,
-          callsign: member.callsign as string,
-          rank: member.rank as string | null,
-          specialty: member.specialty as string | null,
-        }));
-        setCrew(roster);
+  const loadAlerts = useCallback(() => {
+    setLoading(true);
+    setLoadError("");
+    try {
+      // Use the same canonical roster and alerts as the Mission Control overview.
+      const byId = new Map(DEMO_ALERTS.map((alert) => [alert.id, alert]));
+      for (const astronaut of DEMO_ASTRONAUTS) {
+        const key = `crewcare_demo_alerts_${astronaut.id}`;
+        const baseline = DEMO_ALERTS.filter((alert) => alert.userId === astronaut.id);
+        let saved: Alert[] = [];
+        try {
+          const raw = localStorage.getItem(key);
+          const parsed: unknown = raw ? JSON.parse(raw) : [];
+          saved = Array.isArray(parsed) ? parsed as Alert[] : [];
+        } catch { saved = []; }
+        // Empty or missing local state is seeded from the complete demo alert set.
+        if (saved.length === 0) {
+          saved = baseline;
+          localStorage.setItem(key, JSON.stringify(saved));
+        }
+        saved.forEach((alert) => byId.set(alert.id, alert));
       }
-    }).catch(() => {});
+      setCrew(DEMO_ASTRONAUTS);
+      setAlerts([...byId.values()].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    } catch {
+      // The bundled demo roster remains available even if browser storage is blocked.
+      setCrew(DEMO_ASTRONAUTS);
+      setAlerts([...DEMO_ALERTS]);
+      setLoadError("");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const handleAcknowledge = async (id: string) => {
+  useEffect(() => { const timer = window.setTimeout(loadAlerts, 0); return () => window.clearTimeout(timer); }, [loadAlerts]);
+  useEffect(() => () => { if (undoTimer.current != null) window.clearTimeout(undoTimer.current); }, []);
+
+  const handleAcknowledge = (id: string) => {
+    const current = alerts?.find((alert) => alert.id === id);
+    if (!current) return;
+    const acknowledged: Alert = { ...current, status: "ACKNOWLEDGED", acknowledgedAt: new Date().toISOString(), acknowledgedBy: "Mission Control (Demo)" };
+    setAlerts((previous) => (previous ?? []).map((alert) => alert.id === id ? acknowledged : alert));
     try {
-      const response = await fetch(`/api/alerts/${id}/acknowledge`, { method: "POST" });
-      if (!response.ok) return;
-      setAlerts((prev) => {
-        const updated = prev.map((alert) => alert.id === id
-          ? { ...alert, status: "ACKNOWLEDGED" as const, acknowledgedAt: new Date().toISOString(), acknowledgedBy: simulated ? "Mission Control (Demo)" : "Mission Control" }
-          : alert);
-        const acknowledged = updated.find((alert) => alert.id === id);
-        if (simulated && acknowledged) {
-          const key = `crewcare_demo_alerts_${acknowledged.userId}`;
-          try {
-            const stored = JSON.parse(localStorage.getItem(key) ?? "[]") as Alert[];
-            localStorage.setItem(key, JSON.stringify([...stored.filter((alert) => alert.id !== id), acknowledged]));
-          } catch { localStorage.setItem(key, JSON.stringify([acknowledged])); }
-        }
-        return updated;
-      });
-    } catch { /* Keep the alert active when acknowledgement fails. */ }
+      const key = `crewcare_demo_alerts_${acknowledged.userId}`;
+      const stored = JSON.parse(localStorage.getItem(key) ?? "[]") as Alert[];
+      const byId = new Map(stored.map((alert) => [alert.id, alert]));
+      byId.set(id, acknowledged);
+      localStorage.setItem(key, JSON.stringify([...byId.values()]));
+      setLoadError("");
+      setUndoAlert(current);
+      if (undoTimer.current != null) window.clearTimeout(undoTimer.current);
+      undoTimer.current = window.setTimeout(() => setUndoAlert(null), 7000);
+    } catch {
+      setLoadError("This browser could not save the acknowledgement. Keep this page open or enable browser storage and reload.");
+    }
   };
 
-  const active = alerts.filter((alert) => alert.status === "ACTIVE");
-  const acknowledged = alerts.filter((alert) => alert.status === "ACKNOWLEDGED");
-  const selected = alerts.find((alert) => alert.id === selectedId) ?? null;
+  const undoAcknowledge = () => {
+    if (!undoAlert) return;
+    setAlerts((previous) => (previous ?? []).map((alert) => alert.id === undoAlert.id ? undoAlert : alert));
+    try {
+      const key = `crewcare_demo_alerts_${undoAlert.userId}`;
+      const stored = JSON.parse(localStorage.getItem(key) ?? "[]") as Alert[];
+      const byId = new Map(stored.map((alert) => [alert.id, alert]));
+      byId.set(undoAlert.id, undoAlert);
+      localStorage.setItem(key, JSON.stringify([...byId.values()]));
+      setLoadError("");
+      setUndoAlert(null);
+      if (undoTimer.current != null) window.clearTimeout(undoTimer.current);
+    } catch {
+      setLoadError("This browser could not undo the acknowledgement. Enable browser storage and try again.");
+    }
+  };
+
+  const undoToast = undoAlert ? <div className={styles.undoToast} role="status" aria-live="polite"><span>{undoAlert.title} acknowledged.</span><button type="button" onClick={undoAcknowledge}>Undo</button></div> : null;
+
+  const allAlerts = alerts ?? [];
+  const active = allAlerts.filter((alert) => alert.status === "ACTIVE");
+  const acknowledged = allAlerts.filter((alert) => alert.status === "ACKNOWLEDGED");
+  const selected = allAlerts.find((alert) => alert.id === selectedId) ?? null;
   const person = selected ? crew.find((astronaut) => astronaut.id === selected.userId) : undefined;
   const readings = useMemo(() => selected ? readingsFor(selected, person) : [], [selected, person]);
   const guidance = selected ? guidanceFor(selected) : null;
@@ -140,7 +171,10 @@ export default function AlertsPage() {
   const verdict = selected?.threshold == null || selected.value == null ? "No threshold set" : selected.metric === "sleepDuration" ? selected.value < selected.threshold ? "Low" : "In range" : selected.value > selected.threshold ? "High" : "In range";
   const durationEnd = selected?.status === "ACKNOWLEDGED" && selected.acknowledgedAt ? selected.acknowledgedAt : new Date();
 
+  if (loading) return <main className={styles.page}><p role="status" className={styles.counts}>Loading alerts…</p></main>;
+
   if (selected && guidance) return <main className={styles.page}>
+    {undoToast}
     <button className={styles.backButton} onClick={() => setSelectedId(null)}><ArrowLeft size={17}/> Back to Alerts</button>
     <header className={styles.detailHeader}><div><p className={styles.kicker}>MISSION CONTROL · ALERT DETAIL</p><h1>{selected.title}</h1><p>{selected.message}</p></div><div className={styles.detailStatus}><span><i/> {selected.severity[0] + selected.severity.slice(1).toLowerCase()}</span><strong>{selected.status === "ACTIVE" ? "Active" : "Acknowledged"}</strong></div></header>
     <div className={styles.detailMeta}><span><strong>Affects</strong>{person ? `${person.name} · ${person.callsign}` : "Crew member not found"}</span><span><strong>Active for</strong>{durationLabel(selected.createdAt, durationEnd)}</span><span><strong>Latest alert value</strong>{selected.value ?? "Not recorded"} {unit} · {verdict}</span></div>
@@ -173,10 +207,13 @@ export default function AlertsPage() {
   </main>;
 
   return <main className={styles.page}>
+    {undoToast}
     <header className={styles.pageHeader}><div><p className={styles.kicker}>MISSION CONTROL</p><h1>Alerts</h1><p className={styles.counts}>{active.length} active · {acknowledged.length} acknowledged</p></div></header>
+    {loadError && <div role="status" className={styles.notice}><span>{loadError}</span><button className={styles.detailButton} onClick={loadAlerts}>Reload alerts</button></div>}
     <div className={styles.notice}><AlertTriangle size={17}/><span>{simulated ? "All alerts are simulated demo data. Acknowledgements are saved in this browser and cleared by Demo reset." : "Health alerts contain sensitive data. This demonstration portal does not provide authenticated access controls."}</span></div>
     {active.length > 0 && <section className={styles.alertSection}><div className={styles.sectionTitle}><AlertTriangle size={17}/><h2>ACTIVE ALERTS ({active.length})</h2></div><div className={styles.alertList}>{active.map((alert) => <AlertItem key={alert.id} alert={alert} person={crew.find((astronaut) => astronaut.id === alert.userId)} onOpen={() => setSelectedId(alert.id)} onAcknowledge={() => void handleAcknowledge(alert.id)}/>)}</div></section>}
     {acknowledged.length > 0 && <section className={styles.alertSection}><div className={styles.sectionTitle}><CheckCircle size={17}/><h2>ACKNOWLEDGED ({acknowledged.length})</h2></div><div className={styles.alertList}>{acknowledged.map((alert) => <AlertItem key={alert.id} alert={alert} person={crew.find((astronaut) => astronaut.id === alert.userId)} onOpen={() => setSelectedId(alert.id)}/>)}</div></section>}
+    {allAlerts.length === 0 && <div className={styles.chartEmpty}>No active alerts — all clear.</div>}
   </main>;
 }
 
@@ -184,7 +221,7 @@ function AlertItem({ alert, person, onOpen, onAcknowledge }: { alert: Alert; per
   const openKey = (event: React.KeyboardEvent<HTMLElement>) => { if (event.target instanceof HTMLButtonElement) return; if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } };
   return <article className={styles.alertCard} tabIndex={0} role="button" onClick={onOpen} onKeyDown={openKey} aria-label={`View details for ${alert.title}`}>
     <div className={styles.cardMeta}><span className={styles.severity}><i/>{alert.severity[0] + alert.severity.slice(1).toLowerCase()}</span><span>{alert.status === "ACTIVE" ? "Active" : "Acknowledged"}</span>{person && <span className={styles.person}>{person.callsign} · {person.name}</span>}</div>
-    <h3>{alert.title}</h3><p>{alert.message}</p><a href="/astronaut/learn#nasa-data-sources" onClick={(event) => event.stopPropagation()} style={{ display: "inline-block", marginTop: 8, color: "#73e1d8", fontSize: 12, textUnderlineOffset: 2 }}>Source: CrewCare demo alert rule · NASA HRP risk context</a>
+    <h3>{alert.title}</h3><p>{alert.message}</p><a href="/astronaut/learn#nasa-data-sources" onClick={(event) => event.stopPropagation()} style={{ display: "inline-block", marginTop: 8, color: "#08784f", fontSize: 12, textUnderlineOffset: 2 }}>Source: CrewCare demo alert rule · NASA HRP risk context</a>
     {alert.status === "ACKNOWLEDGED" && <small className={styles.ackLine}>Acknowledged by {alert.acknowledgedBy ?? "Mission Control"}</small>}
     <div className={styles.cardActions}><button className={styles.detailButton} onClick={(event) => { event.stopPropagation(); onOpen(); }}>View detail <ArrowRight size={16}/></button>{onAcknowledge && <button className={styles.ackButton} onClick={(event) => { event.stopPropagation(); onAcknowledge(); }}><CheckCircle size={16}/> Acknowledge</button>}</div>
   </article>;

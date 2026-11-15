@@ -23,7 +23,7 @@ type Point = { date: string; value: number; id: string };
 const change = (value: number | null | undefined) => value == null ? "—" : `${value > 0 ? "+" : ""}${value}%`;
 const directionLabel = (direction?: string) => direction === "increasing" ? "Going up" : direction === "decreasing" ? "Going down" : direction === "stable" ? "Steady" : "No data";
 const directionIcon = (direction?: string) => direction === "increasing" ? ArrowUpRight : direction === "decreasing" ? ArrowDownRight : ArrowRight;
-const status = (value: string | null) => value === "RED" ? { text: "Act now", className: styles.statusRed } : value === "AMBER" ? { text: "Watch", className: styles.statusAmber } : { text: "All clear", className: styles.statusGreen };
+const status = (value: string | null) => value === "RED" ? { text: "Act now", className: styles.statusRed } : value === "AMBER" ? { text: "Needs attention", className: styles.statusAmber } : { text: "All clear", className: styles.statusGreen };
 const formatUnit = (value: number | null | undefined, unit: string) => value == null ? "—" : `${value} ${unit}`;
 
 function toPoints(records: HealthRecord[], key: keyof HealthRecord): Point[] {

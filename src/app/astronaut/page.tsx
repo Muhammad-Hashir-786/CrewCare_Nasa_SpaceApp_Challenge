@@ -15,7 +15,7 @@ function statusClass(status?: string) {
 
 function vitStatus(value: number | null | undefined, minimum?: number, maximum?: number) {
   if (value == null) return { label: "No data", good: false };
-  if ((minimum !== undefined && value < minimum) || (maximum !== undefined && value > maximum)) return { label: "Needs review", good: false };
+  if ((minimum !== undefined && value < minimum) || (maximum !== undefined && value > maximum)) return { label: "Needs attention", good: false };
   return { label: "Within baseline", good: true };
 }
 
@@ -37,10 +37,10 @@ export default function AstronautDashboard() {
   const readiness = assessment?.status === "GREEN" ? "92" : assessment?.status === "AMBER" ? "71" : "55";
   const readinessLabel = assessment?.status === "GREEN" ? "Mission ready" : assessment?.status === "AMBER" ? "Monitor closely" : "Attention needed";
   const chartMetrics = [
-    { metric: "heartRate" as const, label: "Heart rate", unit: "BPM", color: "#67ded6", warnMax: 100 },
-    { metric: "oxygenSat" as const, label: "SpO₂", unit: "%", color: "#67ded6", warnMin: 95 },
-    { metric: "systolicBP" as const, label: "Systolic blood pressure", unit: "mmHg", color: "#67ded6", warnMax: 130 },
-    { metric: "sleepDuration" as const, label: "Sleep", unit: "hours", color: "#67ded6", warnMin: 6 },
+    { metric: "heartRate" as const, label: "Heart rate", unit: "BPM", color: "#08784f", warnMax: 100 },
+    { metric: "oxygenSat" as const, label: "SpO₂", unit: "%", color: "#08784f", warnMin: 95 },
+    { metric: "systolicBP" as const, label: "Systolic blood pressure", unit: "mmHg", color: "#08784f", warnMax: 130 },
+    { metric: "sleepDuration" as const, label: "Sleep", unit: "hours", color: "#08784f", warnMin: 6 },
   ];
   const actions = [
     { href: "/astronaut/history", label: "View health history", description: "Review your previous check-ins.", Icon: Activity },
@@ -108,7 +108,7 @@ export default function AstronautDashboard() {
       </section>
 
       <section className={styles.section} aria-labelledby="checkin-title">
-        <div className={styles.sectionHeading}><div><span className={styles.sectionKicker}>TWO MINUTES</span><h2 id="checkin-title">Daily check-in</h2></div></div>
+        <div className={styles.sectionHeading}><div><span className={styles.sectionKicker}>TWO MINUTES</span><h2 id="checkin-title">Daily Check-In</h2></div></div>
         <article className={styles.checkinCard}>
           <span className={styles.checkinIcon}><Sparkles size={22} /></span>
           <div><h3>How did you sleep?</h3><p>A short check-in helps track your recovery.</p></div>

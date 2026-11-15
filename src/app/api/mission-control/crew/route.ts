@@ -4,48 +4,51 @@ import { NextResponse } from "next/server";
 import { DEMO_ASTRONAUTS, DEMO_ALERTS } from "@/lib/demo-data";
 import { isDatabaseConfigured } from "@/lib/db";
 
+function demoCrewResponse() {
+  const crew = DEMO_ASTRONAUTS.map((a) => {
+    const latest = (a.healthRecords ?? []).slice(-1)[0];
+    return {
+      id: a.id,
+      name: a.name,
+      callsign: a.callsign,
+      rank: a.rank,
+      specialty: a.specialty,
+      overallStatus: a.latestAssessment?.status ?? "GREEN",
+      overallCategory:
+        a.latestAssessment?.status === "RED" ? "WARNING"
+        : a.latestAssessment?.status === "AMBER" ? "ATTENTION"
+        : "NORMAL",
+      latestHeartRate: latest?.heartRate ?? null,
+      latestSystolicBP: latest?.systolicBP ?? null,
+      latestDiastolicBP: latest?.diastolicBP ?? null,
+      latestOxygenSat: latest?.oxygenSat ?? null,
+      latestSleepDuration: latest?.sleepDuration ?? null,
+      latestMood: latest?.mood ?? null,
+      activeAlertCount: (a.activeAlerts ?? []).filter((x) => x.status === "ACTIVE").length,
+      flags: a.latestAssessment?.flags ?? [],
+      lastUpdated: latest?.recordedAt ?? null,
+      isSimulated: true,
+    };
+  });
+
+  return NextResponse.json({
+    mission: { name: "Horizon VII", code: "HORIZON-7" },
+    crew,
+    summary: {
+      total: crew.length,
+      normal: crew.filter((c) => c.overallCategory === "NORMAL").length,
+      attention: crew.filter((c) => c.overallCategory === "ATTENTION").length,
+      warning: crew.filter((c) => c.overallCategory === "WARNING").length,
+      critical: crew.filter((c) => c.overallCategory === "CRITICAL").length,
+      activeAlerts: DEMO_ALERTS.filter((a) => a.status === "ACTIVE").length,
+    },
+    isSimulated: true,
+  });
+}
+
 export async function GET() {
   if (!isDatabaseConfigured()) {
-    // Return demo data summary
-    const crew = DEMO_ASTRONAUTS.map((a) => {
-      const latest = (a.healthRecords ?? []).slice(-1)[0];
-      return {
-        id: a.id,
-        name: a.name,
-        callsign: a.callsign,
-        rank: a.rank,
-        specialty: a.specialty,
-        overallStatus: a.latestAssessment?.status ?? "GREEN",
-        overallCategory:
-          a.latestAssessment?.status === "RED" ? "WARNING"
-          : a.latestAssessment?.status === "AMBER" ? "ATTENTION"
-          : "NORMAL",
-        latestHeartRate: latest?.heartRate ?? null,
-        latestSystolicBP: latest?.systolicBP ?? null,
-        latestDiastolicBP: latest?.diastolicBP ?? null,
-        latestOxygenSat: latest?.oxygenSat ?? null,
-        latestSleepDuration: latest?.sleepDuration ?? null,
-        latestMood: latest?.mood ?? null,
-        activeAlertCount: (a.activeAlerts ?? []).filter((x) => x.status === "ACTIVE").length,
-        flags: a.latestAssessment?.flags ?? [],
-        lastUpdated: latest?.recordedAt ?? null,
-        isSimulated: true,
-      };
-    });
-
-    return NextResponse.json({
-      mission: { name: "Horizon VII", code: "HORIZON-7" },
-      crew,
-      summary: {
-        total: crew.length,
-        normal: crew.filter((c) => c.overallCategory === "NORMAL").length,
-        attention: crew.filter((c) => c.overallCategory === "ATTENTION").length,
-        warning: crew.filter((c) => c.overallCategory === "WARNING").length,
-        critical: crew.filter((c) => c.overallCategory === "CRITICAL").length,
-        activeAlerts: DEMO_ALERTS.filter((a) => a.status === "ACTIVE").length,
-      },
-      isSimulated: true,
-    });
+    return demoCrewResponse();
   }
 
   // DB path
@@ -60,6 +63,8 @@ export async function GET() {
         alerts: { where: { status: "ACTIVE" } },
       },
     });
+
+    if (users.length === 0) return demoCrewResponse();
 
     const crew = users.map((u) => {
       const latest = u.healthRecords[0];

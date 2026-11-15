@@ -20,7 +20,7 @@ Crew Care is under active development. Its current local astronaut records are s
 - **NASA data integration:** no NASA dataset is embedded. Scientific references provide context only; local event eligibility rules must be checked.
 - **Automated journey/UI coverage:** API smoke tests do not exercise full browser journeys, responsive layouts, assistive technology, or every interactive control.
 - **Production operations:** no hosting, TLS endpoint, monitoring, backup, or deployed health check has been verified. Rate limiting is process-local.
-- **Emergency assistance:** voice input uses browser speech APIs and varies by browser. The emergency interface does not triage, prescribe, persist a transcript, or contact human support. No clinically reviewed protocol, authenticated escalation service, delivery confirmation, or emergency-session audit system exists.
+- **Emergency flow:** voice input uses browser speech APIs and varies by browser. The emergency interface does not triage, prescribe, persist a transcript, or contact human support. No clinically reviewed protocol, authenticated escalation service, delivery confirmation, or emergency-session audit system exists.
 - **Clinical/scientific validation:** assessment thresholds, statistical projections, and AI explanations are not clinically or operationally validated. AI output is advisory and must not alter Phase 3 alert severity.
 - **Source control:** this workspace has no Git metadata, so a repository diff and commit history could not be reviewed.
 

@@ -40,6 +40,7 @@ export default function MissionControlLoginPage() {
       return;
     }
     window.sessionStorage.setItem(OFFICER_SESSION_KEY, officer.id);
+    window.sessionStorage.setItem("crewcare_mission_action_notice", `Signed in as ${officer.name} — Mission Control is ready.`);
     window.dispatchEvent(new Event("crewcare-mission-officer-change"));
     router.replace("/mission-control");
   };

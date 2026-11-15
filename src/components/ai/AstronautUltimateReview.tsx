@@ -22,10 +22,11 @@ type Review = {
   missingInformation?: string[];
   limitations?: string[];
 };
-type ChatMessage = { role: "user" | "assistant"; text: string; answer?: Review; dataUsed?: string };
+type ChatMessage = { role: "user" | "assistant"; text: string; answer?: Review; dataUsed?: string; scopeNote?: string };
 
 const periodDays: Record<Exclude<Period, "mission">, number> = { "24h": 1, "7d": 7, "30d": 30, "90d": 90 };
 const prompts = ["How am I doing today?", "What changed this week?", "Explain my latest assessment", "How is my sleep compared with baseline?"];
+const isCrewWideQuestion = (value: string) => /\b(?:crew(?:\s+members?)?|astronauts|whole crew|all crew|everyone|team-wide|mission-wide)\b/i.test(value);
 const readout = (value: unknown) => typeof value === "string" ? value
   .replace(/\b(?:rec|ast|asmnt|alert)-[\w-]+\b/gi, "health record")
   .replace(/\bPHASE\s*[34]\b/gi, "earlier review")
@@ -36,7 +37,7 @@ const readout = (value: unknown) => typeof value === "string" ? value
   .replace(/\bmedian\b/gi, "usual midpoint")
   .replace(/\s+/g, " ").trim() : "";
 const dateLabel = (date: Date | string) => new Date(date).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-const statusText = (verdict?: Review["verdict"]) => verdict === "ACT_NOW" ? "Act now" : verdict === "WATCH" ? "Watch" : "All clear";
+const statusText = (verdict?: Review["verdict"]) => verdict === "ACT_NOW" ? "Act now" : verdict === "WATCH" ? "Needs attention" : "All clear";
 
 export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut }) {
   const [period, setPeriod] = useState<Period>("30d");
@@ -100,12 +101,14 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
     setQuestion("");
     try {
       const history = activeMessages.map((message) => ({ role: message.role, text: message.role === "assistant" && message.answer ? `Verdict: ${statusText(message.answer.verdict)}. What this could mean: ${readout(message.answer.whatThisCouldMean)}. What to do right now: ${(message.answer.whatToDoNow ?? []).map((step, i) => `${i + 1}. ${readout(step)}`).join(" ")}. Watch out for: ${(message.answer.watchOutFor ?? []).map(readout).join(" ")}. When to get help immediately: ${readout(message.answer.whenToGetHelpImmediately)}.`.slice(0, 4000) : readout(message.text) })).slice(-100);
-      const response = await fetch("/api/ai/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: "astronaut", astronautId: astronaut.id, question: `${text.slice(0, 500)}. Use only supplied data, do not invent details or mention IDs. ${promptContext}`.slice(0, 1000), period, conversationHistory: history, demoStates: [{ astronautId: astronaut.id, records: records.map((r) => ({ ...r, recordedAt: new Date(r.recordedAt).toISOString() })), latestAssessment: astronaut.latestAssessment ? { ...astronaut.latestAssessment, createdAt: new Date(astronaut.latestAssessment.createdAt).toISOString() } : null, activeAlerts: (astronaut.activeAlerts ?? []).filter((a) => a.status === "ACTIVE").map((a) => ({ ...a, createdAt: new Date(a.createdAt).toISOString(), acknowledgedAt: a.acknowledgedAt ? new Date(a.acknowledgedAt).toISOString() : null, acknowledgedBy: a.acknowledgedBy ?? null, metric: a.metric ?? null, value: a.value ?? null, threshold: a.threshold ?? null })) }] }) });
+      const scopeInstruction = isCrewWideQuestion(displayText) ? `This is an astronaut-only chat for ${astronaut.name}. Answer only from ${astronaut.name}'s supplied data. The question asks about the whole crew; clearly say you can cover only ${astronaut.name} and do not invent or infer other crew members' data. ` : "";
+      const response = await fetch("/api/ai/assistant", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scope: "astronaut", astronautId: astronaut.id, question: `${scopeInstruction}${text.slice(0, 500)}. Use only supplied data, do not invent details or mention IDs. ${promptContext}`.slice(0, 1000), period, conversationHistory: history, demoStates: [{ astronautId: astronaut.id, records: records.map((r) => ({ ...r, recordedAt: new Date(r.recordedAt).toISOString() })), latestAssessment: astronaut.latestAssessment ? { ...astronaut.latestAssessment, createdAt: new Date(astronaut.latestAssessment.createdAt).toISOString() } : null, activeAlerts: (astronaut.activeAlerts ?? []).filter((a) => a.status === "ACTIVE").map((a) => ({ ...a, createdAt: new Date(a.createdAt).toISOString(), acknowledgedAt: a.acknowledgedAt ? new Date(a.acknowledgedAt).toISOString() : null, acknowledgedBy: a.acknowledgedBy ?? null, metric: a.metric ?? null, value: a.value ?? null, threshold: a.threshold ?? null })) }] }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "The assistant could not answer right now.");
       const a = data.analysis as Review;
       const source = latest ? `Using ${astronaut.name}'s latest check-in (${dateLabel(latest.recordedAt)})${latest.heartRate != null ? `: heart rate ${latest.heartRate} bpm` : ""}${latest.systolicBP != null && latest.diastolicBP != null ? `, blood pressure ${latest.systolicBP}/${latest.diastolicBP}` : ""}${latest.oxygenSat != null ? `, oxygen ${latest.oxygenSat}%` : ""}.` : `No stored check-in is available for ${astronaut.name}.`;
-      setMessages((items) => [...(chatOwner === astronaut.id ? items : [{ role: "user" as const, text: readout(displayText) }]), { role: "assistant", text: readout(a.summary) || "No answer text was returned.", answer: a, dataUsed: readout(source) }]);
+      const scopeNote = isCrewWideQuestion(displayText) ? `This chat covers ${astronaut.name} only — for the whole crew, ask in Mission intelligence.` : undefined;
+      setMessages((items) => [...(chatOwner === astronaut.id ? items : [{ role: "user" as const, text: readout(displayText) }]), { role: "assistant", text: readout(a.summary) || "No answer text was returned.", answer: a, dataUsed: readout(source), scopeNote }]);
     } catch (error) { setChatError(error instanceof Error ? error.message : "The assistant could not answer right now."); }
     finally { setChatLoading(false); }
   };
@@ -173,7 +176,7 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
 
     <section className={`${styles.section} ${styles.kit}`}>
       <SectionTitle title="Medicines from the kit" subtitle={SAMPLE_MEDICAL_KIT.status} />
-      <div className={styles.card}><p>{allergies?.length ? `Stored allergies: ${allergies.join(", ")}.` : "Allergy information is not stored for this crew profile, so this review will not recommend a medicine."}</p><p>Use the non-medicine steps above. The sample kit lists {SAMPLE_MEDICAL_KIT.items.length} item, but its inventory is simulated and unverified; no medication is recommended here.</p></div>
+      <div className={styles.card}><p>Simulated sample kit — not verified onboard inventory.</p><p>{allergies?.length ? `Stored allergies: ${allergies.join(", ")}.` : "Allergy information is not stored for this crew profile, so this review will not recommend a medicine."}</p><p>Use the non-medicine steps above. The sample kit lists {SAMPLE_MEDICAL_KIT.items.length} item, but its inventory is simulated and unverified; no medication is recommended here.</p></div>
     </section>
 
     <section className={styles.section}>
@@ -181,6 +184,7 @@ export function AstronautUltimateReview({ astronaut }: { astronaut: Astronaut })
       <div className={`${styles.card} ${styles.chat}`}>
         <div className={styles.chips}>{prompts.map((prompt) => <button key={prompt} type="button" onClick={() => void ask(prompt)} disabled={chatLoading}>{prompt}</button>)}</div>
         {activeMessages.map((message, index) => <div className={message.role === "user" ? styles.userBubble : styles.answerBubble} key={`${message.role}-${index}`}><span>{message.role === "user" ? "You" : "CrewCare AI"}</span>{message.role === "user" ? <p>{readout(message.text)}</p> : message.answer ? <div>
+          {message.scopeNote && <p className={styles.meta}>{readout(message.scopeNote)}</p>}
           <span className={`${styles.verdict} ${styles[(message.answer.verdict ?? "ALL_CLEAR").toLowerCase()]}`}><span className={styles.dot}/>{statusText(message.answer.verdict)}</span>
           <p className={styles.meta}>{readout(message.dataUsed)}</p>
           <section className={styles.chatAnswerSection}><h3>What this could mean</h3><p>{readout(message.answer.whatThisCouldMean ?? message.answer.summary)}</p></section>

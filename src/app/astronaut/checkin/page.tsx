@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -75,8 +75,8 @@ function validateField(key: string, raw: string): string | null {
   const v = parseFloat(raw);
   if (isNaN(v)) return "Must be a number";
   const ranges: Record<string, [number, number]> = {
-    heartRate:    [20, 300],
-    systolicBP:   [50, 300],
+    heartRate:    [30, 220],
+    systolicBP:   [50, 250],
     diastolicBP:  [30, 200],
     bodyTemp:     [30, 45],
     bloodGlucose: [20, 600],
@@ -93,7 +93,7 @@ function validateField(key: string, raw: string): string | null {
 const inputStyle: React.CSSProperties = {
   width: "100%", padding: "9px 12px",
   background: "rgba(255,255,255,0.03)", border: "1px solid var(--line)",
-  borderRadius: 7, color: "#edf8f8", fontSize: 13, outline: "none",
+  borderRadius: 7, color: "#1f2e2c", fontSize: 13, outline: "none",
 };
 
 const labelStyle: React.CSSProperties = {
@@ -115,10 +115,37 @@ export default function CheckInPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [submittedRecord, setSubmittedRecord] = useState<HealthRecord | null>(null);
+  const prefilledFor = useRef<string | null>(null);
 
   useEffect(() => {
     if (!localStorage.getItem("crewcare_astronaut_id")) router.replace("/select");
   }, [router]);
+
+  useEffect(() => {
+    if (!astronaut?.id || prefilledFor.current === astronaut.id) return;
+    const latest = [...(astronaut.healthRecords ?? [])].sort((a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime())[0];
+    if (!latest) return;
+    const timer = window.setTimeout(() => {
+      if (prefilledFor.current === astronaut.id) return;
+      prefilledFor.current = astronaut.id;
+      setForm((current) => ({
+        ...current,
+        heartRate: current.heartRate || (latest.heartRate == null ? "" : String(latest.heartRate)),
+        systolicBP: current.systolicBP || (latest.systolicBP == null ? "" : String(latest.systolicBP)),
+        diastolicBP: current.diastolicBP || (latest.diastolicBP == null ? "" : String(latest.diastolicBP)),
+        bodyTemp: current.bodyTemp || (latest.bodyTemp == null ? "" : String(latest.bodyTemp)),
+        bloodGlucose: current.bloodGlucose || (latest.bloodGlucose == null ? "" : String(latest.bloodGlucose)),
+        oxygenSat: current.oxygenSat || (latest.oxygenSat == null ? "" : String(latest.oxygenSat)),
+        sleepDuration: current.sleepDuration || (latest.sleepDuration == null ? "" : String(latest.sleepDuration)),
+        sleepQuality: latest.sleepQuality ?? current.sleepQuality,
+        fatigue: current.fatigue || latest.fatigue || "",
+        mood: current.mood || latest.mood || "",
+        stressLevel: latest.stressLevel ?? current.stressLevel,
+        anxietyLevel: latest.anxietyLevel ?? current.anxietyLevel,
+      }));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [astronaut]);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -127,6 +154,19 @@ export default function CheckInPage() {
     setForm((f) => ({ ...f, [k]: v }));
     const err = validateField(k, v);
     setErrors((e) => ({ ...e, [k]: err ?? undefined }));
+  };
+
+  const goNext = () => {
+    const keys = step === 0 ? ["heartRate", "systolicBP", "diastolicBP", "bodyTemp", "bloodGlucose", "oxygenSat"] : step === 1 ? ["sleepDuration"] : [];
+    const stepErrors: Partial<Record<string, string>> = {};
+    for (const key of keys) {
+      const error = validateField(key, String(form[key as keyof FormState] ?? ""));
+      if (error) stepErrors[key] = error;
+    }
+    setErrors((previous) => ({ ...previous, ...stepErrors }));
+    if (Object.keys(stepErrors).length) { setSaveError("Please correct the highlighted value before continuing."); return; }
+    setSaveError(null);
+    setStep((current) => Math.min(current + 1, STEPS.length - 1));
   };
 
   const toggleSymptom = (id: string) =>
@@ -148,6 +188,20 @@ export default function CheckInPage() {
     );
 
   const handleSubmit = async () => {
+    const numericKeys = ["heartRate", "systolicBP", "diastolicBP", "bodyTemp", "bloodGlucose", "oxygenSat", "sleepDuration"];
+    const nextErrors: Partial<Record<string, string>> = {};
+    for (const key of numericKeys) {
+      const value = String(form[key as keyof FormState] ?? "");
+      const error = validateField(key, value);
+      if (error) nextErrors[key] = error;
+    }
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      const first = Object.keys(nextErrors)[0];
+      setStep(["heartRate", "systolicBP", "diastolicBP", "bodyTemp", "bloodGlucose", "oxygenSat"].includes(first) ? 0 : 1);
+      setSaveError("Please correct the highlighted value before submitting.");
+      return;
+    }
     setSaving(true);
     setSaveError(null);
 
@@ -231,7 +285,7 @@ export default function CheckInPage() {
       // selected astronaut's assessment usable and persisted in local demo data.
       const localRecord = { ...rec, id: `local-${astronaut.id}-${Date.now()}` };
       resultRecord = localRecord;
-      setSaveError(null);
+      setSaveError("Cloud save is unavailable right now. This check-in was saved in this browser.");
     }
 
     setSubmittedRecord(resultRecord);
@@ -256,17 +310,17 @@ export default function CheckInPage() {
     : result?.status === "AMBER" ? "#f59e0b" : "#ef4444";
 
   if (submitted && result) {
-    return <AssessmentView result={result} statusColor={statusColor} astronaut={astronaut} record={submittedRecord} onUpdate={(updated, record) => { setResult(updated); setSubmittedRecord(record); addHealthRecord(record, { id: `assessment-${record.id}`, userId: astronaut.id, status: updated.status, summary: updated.summary, details: updated.details, guidance: updated.guidance, flags: updated.flags, createdAt: record.recordedAt }, true); }} onReset={() => { setSubmitted(false); setResult(null); setSubmittedRecord(null); setForm(INITIAL); setStep(0); }} />;
+    return <AssessmentView result={result} statusColor={statusColor} astronaut={astronaut} record={submittedRecord} saveNotice={saveError} onUpdate={(updated, record) => { setResult(updated); setSubmittedRecord(record); addHealthRecord(record, { id: `assessment-${record.id}`, userId: astronaut.id, status: updated.status, summary: updated.summary, details: updated.details, guidance: updated.guidance, flags: updated.flags, createdAt: record.recordedAt }, true); }} onReset={() => { setSubmitted(false); setResult(null); setSubmittedRecord(null); setForm(INITIAL); setStep(0); }} />;
   }
 
   return (
     <div className={styles.checkinPage}>
       <header className={styles.pageHeader}>
-        <div><span className="section-kicker">ASTRONAUT PORTAL · {astronaut.callsign}</span><h1>Daily Health Check-In</h1><p>Saturday, 14 November 2026 · {astronaut.name} ({astronaut.callsign})</p></div>
+        <div><span className="section-kicker">ASTRONAUT PORTAL · {astronaut.callsign}</span><h1>Daily Check-In</h1><p>{astronaut.name} ({astronaut.callsign}) · Simulated demo data</p></div>
         <div className={styles.demoNotice}><Shield size={20} /><span>Demo build using demonstration thresholds only. Not a medical device. If you are experiencing a medical emergency, follow your mission emergency medical procedure immediately.</span></div>
       </header>
-      {hasEmergency && <div style={{ padding: "14px 16px", marginBottom: 20, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.4)", borderRadius: 8, display: "flex", gap: 12 }}><AlertTriangle size={18} style={{ color: "#ef4444", flexShrink: 0 }} /><div><strong>Emergency Symptom Detected</strong><p>You have reported a serious symptom. Follow your mission emergency medical procedure immediately. Contact your flight surgeon now.</p></div></div>}
-      <div className={styles.stepper} aria-label="Check-in progress"><div className={styles.stepTrack}>{STEPS.map((label, i) => <div className={`${styles.stepItem} ${i === step ? styles.currentStep : ""} ${i < step ? styles.completedStep : ""}`} key={label}><button type="button" disabled={i > step} onClick={() => setStep(i)} aria-current={i === step ? "step" : undefined}><span className={styles.stepCircle}>{i < step ? <Check size={18} /> : String(i + 1).padStart(2, "0")}</span><span>{label}</span></button>{i < 3 && <span className={`${styles.stepConnector} ${i < step ? styles.connectorDone : ""}`} />}</div>)}</div><div className={styles.progressMeta}><span>Step {step + 1} of 4 — {STEPS[step]}</span><span>{Math.round(((step + 1) / 4) * 100)}%</span></div><div className={styles.progressTrack}><span style={{ width: `${((step + 1) / 4) * 100}%` }} /></div></div>
+      {hasEmergency && <div style={{ padding: "14px 16px", marginBottom: 20, background: "rgba(239,68,68,0.08)", border: "1px solid #b42323", borderRadius: 8, display: "flex", gap: 12 }}><AlertTriangle size={18} style={{ color: "#b42323", flexShrink: 0 }} /><div><strong>Emergency Symptom Detected</strong><p>You have reported a serious symptom. Follow your mission emergency medical procedure immediately. Contact your flight surgeon now.</p></div></div>}
+      <div className={styles.stepper} aria-label="Daily Check-In progress" aria-live="polite"><div className={styles.stepTrack}>{STEPS.map((label, i) => <div className={`${styles.stepItem} ${i === step ? styles.currentStep : ""} ${i < step ? styles.completedStep : ""}`} key={label}><button type="button" disabled={i > step} onClick={() => setStep(i)} aria-current={i === step ? "step" : undefined}><span className={styles.stepCircle}>{i < step ? <Check size={18} /> : String(i + 1).padStart(2, "0")}</span><span>{label}</span></button>{i < 3 && <span className={`${styles.stepConnector} ${i < step ? styles.connectorDone : ""}`} />}</div>)}</div><div className={styles.progressMeta}><span>Step {step + 1} of 4 — {STEPS[step]}</span><span>{Math.round(((step + 1) / 4) * 100)}%</span></div><div className={styles.progressTrack}><span style={{ width: `${((step + 1) / 4) * 100}%` }} /></div></div>
       <div className={styles.layout}>
       <main className={styles.formColumn}>
         {/* ── Step 0: Vitals ── */}
@@ -305,21 +359,23 @@ export default function CheckInPage() {
                       value={String(form[f.key as keyof FormState] ?? "")}
                       onChange={(e) => setStr(f.key, e.target.value)}
                       className={styles.vitalInput}
+                      aria-invalid={Boolean(errors[f.key])}
+                      aria-describedby={errors[f.key] ? `checkin-error-${f.key}` : undefined}
                       style={{ borderColor: errors[f.key] ? "rgba(239,68,68,0.5)" : "var(--line)" }}
                     />
                     {errors[f.key] ? (
-                      <p style={{ margin: "4px 0 0", fontSize: 10, color: "#ef4444" }}>{errors[f.key]}</p>
+                      <p id={`checkin-error-${f.key}`} role="alert" style={{ margin: "4px 0 0", fontSize: 12, color: "#b42323" }}>{errors[f.key]}</p>
                     ) : (
                       <>
                         <p className={styles.rangeHint}>{f.hint}</p>
-                        <a href="/astronaut/learn#nasa-data-sources" className={styles.rangeHint} style={{ display: "inline-block", marginTop: 3, color: "#67ded6", textDecoration: "underline", textUnderlineOffset: 2 }}>Source: CrewCare demo rule · {f.source}</a>
+                        <a href="/astronaut/learn#nasa-data-sources" className={styles.rangeHint} style={{ display: "inline-block", marginTop: 3, color: "#08784f", textDecoration: "underline", textUnderlineOffset: 2 }}>Source: CrewCare demo rule · {f.source}</a>
                       </>
                     )}
                   </div>
                 ))}
               </div>
             </div>
-            <NavRow step={step} onBack={() => setStep(step - 1)} onNext={() => setStep(step + 1)} />
+            <NavRow step={step} onBack={() => setStep(step - 1)} onNext={goNext} />
           </div>
         )}
 
@@ -336,7 +392,7 @@ export default function CheckInPage() {
 
               {/* Sleep duration */}
               <div style={{ marginBottom: 20 }}>
-                <label style={labelStyle}>Sleep Duration <span style={{ color: "#3e5a57", textTransform: "none" }}>(hours)</span></label>
+                <label style={labelStyle}>Sleep Duration <span style={{ color: "#08784f", textTransform: "none" }}>(hours)</span></label>
                 <input
                   type="number" step="0.5"
                   placeholder="e.g. 7.5"
@@ -344,7 +400,7 @@ export default function CheckInPage() {
                   onChange={(e) => setStr("sleepDuration", e.target.value)}
                   style={{ ...inputStyle, maxWidth: 180, borderColor: errors.sleepDuration ? "rgba(239,68,68,0.5)" : "var(--line)" }}
                 />
-                {errors.sleepDuration && <p style={{ margin: "4px 0 0", fontSize: 10, color: "#ef4444" }}>{errors.sleepDuration}</p>}
+                {errors.sleepDuration && <p style={{ margin: "4px 0 0", fontSize: 10, color: "#b42323" }}>{errors.sleepDuration}</p>}
               </div>
 
               {/* Sleep quality slider */}
@@ -359,7 +415,7 @@ export default function CheckInPage() {
                     { v: 5, label: "Excellent" },
                   ].map((opt) => (
                     <button key={opt.v} type="button" onClick={() => set("sleepQuality", opt.v)} style={{
-                      padding: "8px 4px", border: `1px solid ${form.sleepQuality === opt.v ? "rgba(103,222,214,0.4)" : "var(--line)"}`,
+                      padding: "8px 4px", border: `1px solid ${form.sleepQuality === opt.v ? "#16825d" : "var(--line)"}`,
                       borderRadius: 7, background: form.sleepQuality === opt.v ? "rgba(103,222,214,0.1)" : "rgba(0,0,0,0.1)",
                       color: form.sleepQuality === opt.v ? "var(--teal-bright)" : "var(--muted)",
                       fontSize: 9, cursor: "pointer", textAlign: "center",
@@ -396,7 +452,7 @@ export default function CheckInPage() {
                 </div>
               </div>
             </div>
-            <NavRow step={step} onBack={() => setStep(step - 1)} onNext={() => setStep(step + 1)} />
+            <NavRow step={step} onBack={() => setStep(step - 1)} onNext={goNext} />
           </div>
         )}
 
@@ -419,7 +475,7 @@ export default function CheckInPage() {
                   {MOOD_OPTIONS.map((opt) => (
                     <button key={opt.v} type="button" onClick={() => set("mood", opt.v)} style={{
                       padding: "10px 4px",
-                      border: `1px solid ${form.mood === opt.v ? "rgba(103,222,214,0.4)" : "var(--line)"}`,
+                      border: `1px solid ${form.mood === opt.v ? "#16825d" : "var(--line)"}`,
                       borderRadius: 8,
                       background: form.mood === opt.v ? "rgba(103,222,214,0.1)" : "rgba(0,0,0,0.1)",
                       color: form.mood === opt.v ? "var(--teal-bright)" : "var(--muted)",
@@ -446,7 +502,7 @@ export default function CheckInPage() {
                   ].map((opt) => (
                     <button key={opt.v} type="button" onClick={() => set("stressLevel", opt.v)} style={{
                       padding: "8px 4px",
-                      border: `1px solid ${form.stressLevel === opt.v ? "rgba(169,160,244,0.4)" : "var(--line)"}`,
+                      border: `1px solid ${form.stressLevel === opt.v ? "#dce6e4" : "var(--line)"}`,
                       borderRadius: 7,
                       background: form.stressLevel === opt.v ? "rgba(169,160,244,0.1)" : "rgba(0,0,0,0.1)",
                       color: form.stressLevel === opt.v ? "#a9a0f4" : "var(--muted)",
@@ -466,7 +522,7 @@ export default function CheckInPage() {
                   {[1, 2, 3, 4, 5].map((value) => (
                     <button key={value} type="button" onClick={() => set("anxietyLevel", value)} style={{
                       padding: "8px 4px",
-                      border: `1px solid ${form.anxietyLevel === value ? "rgba(169,160,244,0.4)" : "var(--line)"}`,
+                      border: `1px solid ${form.anxietyLevel === value ? "#dce6e4" : "var(--line)"}`,
                       borderRadius: 7,
                       background: form.anxietyLevel === value ? "rgba(169,160,244,0.1)" : "rgba(0,0,0,0.1)",
                       color: form.anxietyLevel === value ? "#a9a0f4" : "var(--muted)",
@@ -489,7 +545,7 @@ export default function CheckInPage() {
                 />
               </div>
             </div>
-            <NavRow step={step} onBack={() => setStep(step - 1)} onNext={() => setStep(step + 1)} />
+            <NavRow step={step} onBack={() => setStep(step - 1)} onNext={goNext} />
           </div>
         )}
 
@@ -513,7 +569,7 @@ export default function CheckInPage() {
                     <button key={s.id} type="button" onClick={() => toggleSymptom(s.id)} style={{
                       display: "flex", alignItems: "center", gap: 8,
                       padding: "9px 12px", textAlign: "left",
-                      border: `1px solid ${selected ? (s.serious ? "rgba(239,68,68,0.5)" : "rgba(103,222,214,0.4)") : "var(--line)"}`,
+                      border: `1px solid ${selected ? (s.serious ? "#b42323" : "#16825d") : "var(--line)"}`,
                       borderRadius: 8,
                       background: selected ? (s.serious ? "rgba(239,68,68,0.08)" : "rgba(103,222,214,0.07)") : "rgba(0,0,0,0.1)",
                       color: selected ? (s.serious ? "#ef4444" : "var(--teal-bright)") : "var(--muted)",
@@ -532,7 +588,7 @@ export default function CheckInPage() {
                 <div style={{ display: "flex", gap: 8 }}>
                   {["MILD", "MODERATE", "SEVERE"].map((sv) => (
                     <button key={sv} type="button" onClick={() => set("symptomSeverity", sv)} style={{
-                      padding: "6px 14px", border: `1px solid ${form.symptomSeverity === sv ? "rgba(103,222,214,0.4)" : "var(--line)"}`,
+                      padding: "6px 14px", border: `1px solid ${form.symptomSeverity === sv ? "#16825d" : "var(--line)"}`,
                       borderRadius: 6, background: form.symptomSeverity === sv ? "rgba(103,222,214,0.08)" : "transparent",
                       color: form.symptomSeverity === sv ? "var(--teal-bright)" : "var(--muted)",
                       fontSize: 11, cursor: "pointer",
@@ -577,7 +633,7 @@ export default function CheckInPage() {
               <button className={styles.nextButton} onClick={handleSubmit} disabled={saving} style={{
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "11px 28px", border: 0, borderRadius: 9,
-                color: "#0c2421", background: saving ? "#4a9e98" : "#8be8df",
+                color: "#08784f", background: saving ? "#4a9e98" : "#8be8df",
                 fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer",
                 letterSpacing: "0.04em",
               }}>
@@ -586,7 +642,7 @@ export default function CheckInPage() {
               </button>
               <button type="button" className={styles.skipButton} disabled={saving} onClick={handleSubmit}>Skip this step</button>
             </div>
-            {saveError && <p style={{ marginTop: 10, fontSize: 11, color: "#ef4444" }}>{saveError}</p>}
+            {saveError && <p role="status" aria-live="polite" style={{ marginTop: 10, fontSize: 13, color: saveError.startsWith("Cloud save") ? "#4d605d" : "#b42323" }}>{saveError}</p>}
           </div>
         )}
       </main>
@@ -609,11 +665,12 @@ function NavRow({ step, onBack, onNext }: { step: number; onBack: () => void; on
 
 interface SuggestedTest { id: string; name: string; field?: keyof HealthRecord; unit?: string; }
 
-function AssessmentView({ result, statusColor, astronaut, record, onUpdate, onReset }: {
+function AssessmentView({ result, statusColor, astronaut, record, saveNotice, onUpdate, onReset }: {
   result: AssessmentResult;
   statusColor: string;
   astronaut: ReturnType<typeof useAstronaut>["astronaut"];
   record: HealthRecord | null;
+  saveNotice: string | null;
   onUpdate: (result: AssessmentResult, record: HealthRecord) => void;
   onReset: () => void;
 }) {
@@ -643,7 +700,7 @@ function AssessmentView({ result, statusColor, astronaut, record, onUpdate, onRe
   if (/vision|eye/.test(symptoms)) tests.push({id:"eyeScan",name:"Eye scan",unit:"result"});
   if (/chest pain|chest tightness|chest pressure/.test(symptoms)) tests.push({id:"ecg",name:"ECG",unit:"result"});
   if (!tests.length) tests.push({id:"repeat",name:"Repeat a vital reading after 15 minutes",unit:"result"});
-  const verdict=result.status==="GREEN"?"All clear":result.status==="AMBER"?"Watch":"Act now";
+  const verdict=result.status==="GREEN"?"All clear":result.status==="AMBER"?"Needs attention":"Act now";
   const reason=out.length ? out.length+" reading"+(out.length===1?" is":"s are")+" outside the normal demo range — "+out.map((key)=>DEMO_THRESHOLDS[key].label.toLowerCase()).join(", ")+"." : result.hasEmergency ? "A serious symptom was reported and needs immediate attention." : "The entered readings are within the normal demo ranges.";
   const actions=result.status==="RED"&&result.hasEmergency
     ? ["Open the emergency guide and follow its first-aid steps.","Keep the person safe and avoid exertion while reassessing.","Record changes in symptoms and readings.","Contact mission medical support / the flight surgeon as soon as the channel allows."]
@@ -678,14 +735,14 @@ function AssessmentView({ result, statusColor, astronaut, record, onUpdate, onRe
   };
   return <div className={styles.assessmentPage}>
     {result.hasEmergency&&<section className={styles.emergencyBanner}><AlertTriangle size={24}/><div><h2>Emergency Symptom Detected</h2><p>A serious symptom was reported. Open the emergency guide and alert mission medical support.</p></div><Link href="/astronaut/emergency">Open emergency guide <ArrowRight size={18}/></Link></section>}
-    <header className={styles.assessmentHeader}><span className="section-kicker">CHECK-IN COMPLETE · {astronaut.callsign}</span><h1>Assessment for {astronaut.name}</h1><p>Simulated demo data · Based on this check-in and available profile history.</p></header>
+    <header className={styles.assessmentHeader}><span className="section-kicker">CHECK-IN COMPLETE · {astronaut.callsign}</span><h1>Check-in complete</h1><p>Assessment for {astronaut.name} · Simulated demo data based on this check-in and available profile history.</p>{saveNotice && <p role="status" aria-live="polite">{saveNotice}</p>}</header>
     <section className={styles.verdictCard+" "+(result.status==="GREEN"?styles.verdictGreen:result.status==="AMBER"?styles.verdictAmber:styles.verdictRed)} style={{borderColor:statusColor}}><span className={styles.verdictLabel}>{verdict}</span><p>{reason}</p>{updated&&<small>Updated after your new test results — here is what changed.</small>}</section>
     <div className={styles.resultGrid}>
       <section className={styles.resultCard}><h2>What this could mean</h2><p>{meaning}</p></section>
       <section className={styles.resultCard}><h2>What to do right now</h2><ol>{actions.slice(0,5).map((item,i)=><li key={i}>{item}</li>)}</ol></section>
       <section className={styles.resultCard+" "+styles.testsCard}><h2>Tests we suggest</h2><p>Record tests you can perform with available equipment.</p>{tests.map(t=><div className={styles.testRow} key={t.id}><strong>{t.name}</strong><input aria-label={t.name+" result"} placeholder="Enter result" value={testValues[t.id]??""} onChange={e=>setTestValues(v=>({...v,[t.id]:e.target.value}))}/><input aria-label={t.name+" time"} placeholder="Time (optional)" value={testTimes[t.id]??""} onChange={e=>setTestTimes(v=>({...v,[t.id]:e.target.value}))}/></div>)}<button className={styles.analyzeButton} onClick={updateResults} disabled={analyzing}>{analyzing?"Analyzing…":"Analyze my results"} <ArrowRight size={18}/></button>{analysisError&&<p className={styles.analysisError}>{analysisError}</p>}</section>
       <section className={styles.resultCard}><h2>Precautions</h2><ul>{(result.details?.split(" | ").filter(Boolean).slice(0,4)??[]).map((item,i)=><li key={i}>{item}</li>)}<li>Avoid strenuous activity if it worsens symptoms and watch for changes.</li></ul></section>
-      <section className={styles.resultCard}><h2>Medicines from the kit</h2><p className={styles.resultMeta}>Illustrative kit list · not verified for this mission: {SAMPLE_MEDICAL_KIT.items.map(item=>item.name+" — "+item.dose).join("; ")}</p><p>{aspirinAllergy?"The stored profile lists an aspirin allergy; do not use aspirin. No medicine in the kit for this — do the physical steps.":storedAllergies.length?"Stored profile allergies: "+storedAllergies.join(", ")+". No medicine is recommended from this illustrative list; continue physical steps.":"No allergy information is stored for this crew profile, so no medicine is recommended. Continue physical steps and confirm allergies with mission medical support."}</p></section>
+      <section className={styles.resultCard}><h2>Medicines from the kit</h2><p className={styles.resultMeta}>Simulated sample kit — not verified onboard inventory.</p><p className={styles.resultMeta}>Illustrative kit list · not verified for this mission: {SAMPLE_MEDICAL_KIT.items.map(item=>item.name+" — "+item.dose).join("; ")}</p><p>{aspirinAllergy?"The stored profile lists an aspirin allergy; do not use aspirin. No medicine in the kit for this — do the physical steps.":storedAllergies.length?"Stored profile allergies: "+storedAllergies.join(", ")+". No medicine is recommended from this illustrative list; continue physical steps.":"No allergy information is stored for this crew profile, so no medicine is recommended. Continue physical steps and confirm allergies with mission medical support."}</p></section>
       <section className={styles.resultCard}><h2>When to get help immediately</h2><ul><li>Chest pain, difficulty breathing, collapse, loss of consciousness, sudden vision loss, or severe bleeding.</li><li>Any symptom that is severe, worsening, or feels unsafe.</li><li>Contact mission medical support / the flight surgeon as soon as the channel allows.</li></ul></section>
     </div>
     <p className={styles.safetyLine}>CrewCare is not a doctor — this is guidance until professional help arrives.</p><button onClick={onReset} className={styles.backToCheckin}>← New Check-In</button>

@@ -59,7 +59,7 @@ function RecordDetails({ record }: { record: HealthRecord }) {
 }
 
 function StatusWord({ status }: { status: DayStatus }) {
-  return <span className={`${styles.statusWord} ${styles[`status_${status.toLowerCase()}`]}`}><span/> {status === "GREEN" ? "All clear" : status === "RED" ? "Act now" : "Needs a look"}</span>;
+  return <span className={`${styles.statusWord} ${styles[`status_${status.toLowerCase()}`]}`}><span/> {status === "GREEN" ? "All clear" : status === "RED" ? "Act now" : "Needs attention"}</span>;
 }
 
 export default function HistoryPage() {
@@ -98,10 +98,10 @@ export default function HistoryPage() {
 
     <section className={`${styles.summary} ${styles.card}`} aria-label="History summary">
       <div className={styles.summaryHeading}><div><span className={styles.kicker}>YOUR RECENT CHECK-INS</span><h2>{records.length} days shown</h2></div><div className={styles.counts}>
-        <div className={styles.countClear}><strong>{counts.clear}</strong><span>days all clear</span></div><div className={styles.countWatch}><strong>{counts.watch}</strong><span>days need a look</span></div>{counts.urgent > 0 && <div className={styles.countUrgent}><strong>{counts.urgent}</strong><span>act now</span></div>}
+        <div className={styles.countClear}><strong>{counts.clear}</strong><span>days all clear</span></div><div className={styles.countWatch}><strong>{counts.watch}</strong><span>days need attention</span></div>{counts.urgent > 0 && <div className={styles.countUrgent}><strong>{counts.urgent}</strong><span>act now</span></div>}
       </div></div>
-      {records.length ? <div className={styles.dayStrip} aria-label="Day-by-day status, newest first">{markedDays.map(({ record, status }) => <button type="button" key={record.id} className={`${styles.daySquare} ${styles[`square_${status.toLowerCase()}`]}`} onClick={() => jumpTo(record)} aria-label={`${dateLong(record.recordedAt)}: ${status === "GREEN" ? "all clear" : status === "RED" ? "act now" : "needs a look"}`} title={`${dateShort(record.recordedAt)} · ${status === "GREEN" ? "All clear" : status === "RED" ? "Act now" : "Needs a look"}`}><span>{new Date(record.recordedAt).toLocaleDateString("en-US", { day: "numeric" })}</span></button>)}</div> : <p className={styles.emptyInline}>No health records are available for this profile.</p>}
-      <div className={styles.legend}><span><i className={styles.greenDot}/>All clear</span><span><i className={styles.amberDot}/>Needs a look</span><span><i className={styles.redDot}/>Act now</span><span className={styles.newestLabel}>Newest first</span></div>
+      {records.length ? <div className={styles.dayStrip} aria-label="Day-by-day status, newest first">{markedDays.map(({ record, status }) => <button type="button" key={record.id} className={`${styles.daySquare} ${styles[`square_${status.toLowerCase()}`]}`} onClick={() => jumpTo(record)} aria-label={`${dateLong(record.recordedAt)}: ${status === "GREEN" ? "all clear" : status === "RED" ? "act now" : "needs attention"}`} title={`${dateShort(record.recordedAt)} · ${status === "GREEN" ? "All clear" : status === "RED" ? "Act now" : "Needs attention"}`}><span>{new Date(record.recordedAt).toLocaleDateString("en-US", { day: "numeric" })}</span></button>)}</div> : <p className={styles.emptyInline}>No health records are available for this profile.</p>}
+      <div className={styles.legend}><span><i className={styles.greenDot}/>All clear</span><span><i className={styles.amberDot}/>Needs attention</span><span><i className={styles.redDot}/>Act now</span><span className={styles.newestLabel}>Newest first</span></div>
     </section>
 
     <FilterBar filterDays={filterDays} setFilterDays={setFilterDays} filterSymptoms={filterSymptoms} setFilterSymptoms={setFilterSymptoms}/>

@@ -204,7 +204,7 @@ export function AIHomeExperience() {
         <div className="ai-chat-thread" aria-live="polite">
           {messages.map((message, index) => message.role === "user" ? <div className="ai-chat-user" key={`user-${index}`}><span>You</span><p>{message.text}</p></div> : message.answer ? <article key={`answer-${index}`} className={`landing-answer verdict-${message.answer.analysis.verdict.toLowerCase()}`}>
             <div className="answer-heading"><div><span className="answer-mode-label">{message.answeredForId ? `Answering for ${DEMO_ASTRONAUTS.find((member) => member.id === message.answeredForId)?.name ?? "selected astronaut"}` : "General advice — no crew member selected"}</span>{message.dataUsed && <p className="answer-data-used">{message.dataUsed}</p>}</div><button className="answer-speak" type="button" onClick={() => speakAnswer(message.answer)} aria-label="Read answer aloud"><Volume2 size={21}/></button></div>
-            <div className="verdict-badge"><span className="verdict-dot"/>{message.answer.analysis.verdict === "ALL_CLEAR" ? "All clear" : message.answer.analysis.verdict === "WATCH" ? "Watch" : "Act now"}</div>
+            <div className="verdict-badge"><span className="verdict-dot"/>{message.answer.analysis.verdict === "ALL_CLEAR" ? "All clear" : message.answer.analysis.verdict === "WATCH" ? "Needs attention" : "Act now"}</div>
             {message.answer.criticalAlerts.map((alert) => <div className="landing-critical" key={alert.id}><strong>{alert.severity} ALERT · {alert.title}</strong><p>{alert.message}</p></div>)}
             <section className="answer-section"><h3>What this could mean</h3><p>{message.answer.analysis.whatThisCouldMean}</p></section>
             <section className="answer-section"><h3>What to do right now</h3><ol>{message.answer.analysis.whatToDoNow.map((step, stepIndex) => <li key={`${stepIndex}-${step}`}>{step}</li>)}</ol></section>
@@ -218,7 +218,7 @@ export function AIHomeExperience() {
         <div className="ai-chat-controls"><button type="button" onClick={clearConversation} disabled={!messages.length && !error}><RotateCcw size={14}/> New conversation</button><span>This conversation is kept while you stay on this page</span></div>
       </section>
 
-      <section className="landing-emergency-cta" aria-label="Emergency assistance">
+      <section className="landing-emergency-cta" aria-label="CrewCare · Demo">
         <div><strong>Need help now?</strong><span>Open the safety intake and contact mission medical support.</span></div>
         <EmergencyAssistant context={emergencyContext}/>
       </section>

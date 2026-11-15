@@ -18,7 +18,7 @@ interface SidebarProps {
 
 const ASTRONAUT_NAV: NavItem[] = [
   { href: "/astronaut",           label: "Overview",  Icon: LayoutDashboard },
-  { href: "/astronaut/checkin",   label: "Check-In",  Icon: MessageSquare },
+  { href: "/astronaut/checkin",   label: "Daily Check-In",  Icon: MessageSquare },
   { href: "/astronaut/analytics", label: "Trends",    Icon: BarChart2 },
   { href: "/astronaut/intelligence", label: "AI Insights", Icon: Sparkles },
   { href: "/astronaut/history",   label: "History",   Icon: Activity },

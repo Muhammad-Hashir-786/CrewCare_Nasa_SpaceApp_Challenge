@@ -16,6 +16,7 @@ export function MissionControlShell({ children }: { children: React.ReactNode })
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [officer, setOfficer] = useState<Astronaut | null>(null);
+  const [actionNotice, setActionNotice] = useState("");
   const isLoginPage = pathname === "/mission-control/login";
 
   useEffect(() => {
@@ -28,6 +29,8 @@ export function MissionControlShell({ children }: { children: React.ReactNode })
       if (id && id !== duty.id) window.sessionStorage.removeItem(OFFICER_SESSION_KEY);
       const active = id === duty.id ? duty : null;
       setOfficer(active);
+      const notice = window.sessionStorage.getItem("crewcare_mission_action_notice");
+      if (notice) { setActionNotice(notice); window.sessionStorage.removeItem("crewcare_mission_action_notice"); }
       setReady(true);
     }, 0);
     const refreshOfficer = () => setOfficer(DEMO_ASTRONAUTS.find((member) => member.id === window.sessionStorage.getItem(OFFICER_SESSION_KEY)) ?? null);
@@ -62,6 +65,6 @@ export function MissionControlShell({ children }: { children: React.ReactNode })
       onSignOut={signOut}
     />
     <Sidebar mode="mission-control"/>
-    <main className="page-shell">{children}</main>
+    <main className="page-shell">{actionNotice && <div className={styles.actionNotice} role="status" aria-live="polite"><span>{actionNotice}</span><button type="button" aria-label="Dismiss confirmation" onClick={() => setActionNotice("")}>×</button></div>}{children}</main>
   </div>;
 }

@@ -47,6 +47,7 @@ export default function MissionCommandPage() {
     localStorage.setItem(DUTY_OFFICER_KEY, selected.id);
     sessionStorage.setItem(OFFICER_SESSION_KEY, selected.id);
     localStorage.setItem("crewcare_mission_officer_since", at); setOnDutySince(at);
+    sessionStorage.setItem("crewcare_mission_action_notice", `Command passed from ${current.name} to ${selected.name}.`);
     setHistory(nextHistory);
     window.dispatchEvent(new Event("crewcare-mission-officer-change"));
     router.replace("/mission-control");

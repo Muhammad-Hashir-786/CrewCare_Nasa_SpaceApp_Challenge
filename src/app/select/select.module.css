@@ -13,8 +13,8 @@
   padding: 30px clamp(20px, 4.5vw, 72px) 40px;
   color: var(--select-white);
   background:
-    radial-gradient(ellipse at 56% 30%, rgba(39, 112, 103, .17), transparent 45%),
-    linear-gradient(135deg, #060d0c 0%, var(--select-bg) 48%, #081311 100%);
+    radial-gradient(ellipse at 56% 30%, rgba(255,255,255,0.17), transparent 45%),
+    linear-gradient(135deg, #ffffff 0%, var(--select-bg) 48%, #ffffff 100%);
   font-family: "DM Sans", Arial, sans-serif;
 }
 
@@ -54,10 +54,10 @@
   gap: 10px;
   min-height: 48px;
   padding: 0 18px;
-  border: 1px solid rgba(103, 222, 214, .58);
+  border: 1px solid #dce6e4;
   border-radius: 999px;
   color: var(--select-white);
-  background: rgba(11, 27, 25, .75);
+  background: rgba(255,255,255,0.75);
   font-size: 15px;
   font-weight: 600;
   transition: background .18s ease, border-color .18s ease, transform .18s ease;
@@ -74,7 +74,7 @@
   align-items: center;
   min-height: 34px;
   padding: 0 14px;
-  border: 1px solid rgba(103, 222, 214, .26);
+  border: 1px solid #dce6e4;
   border-radius: 999px;
   color: var(--select-soft);
   background: rgba(255, 255, 255, .025);
@@ -120,10 +120,10 @@
   gap: 14px;
   margin-bottom: 30px;
   padding: 16px 19px;
-  border: 1px solid rgba(103, 222, 214, .27);
+  border: 1px solid #dce6e4;
   border-radius: 14px;
   color: var(--select-white);
-  background: rgba(11, 27, 25, .9);
+  background: rgba(255,255,255,0.9);
 }
 
 .demoNotice svg { flex: none; color: var(--select-teal); }
@@ -141,16 +141,16 @@
   position: relative;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid rgba(103, 222, 214, .22);
+  border: 1px solid #dce6e4;
   border-radius: 18px;
-  background: linear-gradient(145deg, rgba(14, 33, 30, .98), rgba(8, 20, 18, .98));
+  background: linear-gradient(145deg, rgba(255,255,255,0.98), rgba(255,255,255,0.98));
   box-shadow: 0 18px 48px rgba(0, 0, 0, .18);
   transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
 
 .crewCard:hover {
   transform: translateY(-3px);
-  border-color: rgba(103, 222, 214, .56);
+  border-color: #dce6e4;
   box-shadow: 0 22px 54px rgba(0, 0, 0, .28), 0 0 28px rgba(103, 222, 214, .055);
 }
 
@@ -202,27 +202,27 @@
 .status { flex: none; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--status-accent) 44%, transparent); border-radius: 999px; color: var(--status-accent); font-size: 11px; font-weight: 800; letter-spacing: .09em; }
 
 .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
-.stat { display: grid; min-width: 0; gap: 5px; padding: 13px 12px; border: 1px solid rgba(103, 222, 214, .13); border-radius: 12px; background: rgba(255, 255, 255, .025); }
+.stat { display: grid; min-width: 0; gap: 5px; padding: 13px 12px; border: 1px solid #dce6e4; border-radius: 12px; background: rgba(255, 255, 255, .025); }
 .stat > span { color: var(--select-soft); font-size: 12px; font-weight: 700; letter-spacing: .1em; }
 .stat strong { color: var(--select-white); font-size: 19px; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; }
 .stat small { color: var(--select-muted); font-size: 12px; }
 
-.passwordRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; padding: 11px 13px; border: 1px solid rgba(103, 222, 214, .2); border-radius: 12px; color: var(--select-soft); background: rgba(5, 14, 13, .68); font-size: 14px; line-height: 1.4; }
+.passwordRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; padding: 11px 13px; border: 1px solid #dce6e4; border-radius: 12px; color: var(--select-soft); background: rgba(255,255,255,0.68); font-size: 14px; line-height: 1.4; }
 .passwordRow code { color: var(--select-white); font-family: "DM Sans", Arial, sans-serif; font-size: 15px; font-weight: 800; letter-spacing: .04em; }
-.copyButton { position: relative; z-index: 3; display: inline-flex; align-items: center; gap: 7px; flex: none; min-height: 38px; padding: 0 11px; border: 1px solid rgba(103, 222, 214, .36); border-radius: 9px; color: var(--select-teal); background: #0a1917; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.copyButton { position: relative; z-index: 3; display: inline-flex; align-items: center; gap: 7px; flex: none; min-height: 38px; padding: 0 11px; border: 1px solid #dce6e4; border-radius: 9px; color: var(--select-teal); background: #ffffff; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
 .copyButton:hover { border-color: var(--select-teal); background: rgba(103, 222, 214, .1); }
 
 .cardFooter { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .alertLine,.noAlerts { display: inline-flex; align-items: center; gap: 7px; color: var(--select-soft); font-size: 14px; font-weight: 600; }
 .alertLine svg { color: var(--select-teal); }
-.selectButton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 18px; border: 1px solid var(--select-teal); border-radius: 11px; color: #071110; background: var(--select-teal); font-family: inherit; font-size: 16px; font-weight: 800; cursor: pointer; transition: background .18s ease, transform .18s ease; }
+.selectButton { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 18px; border: 1px solid var(--select-teal); border-radius: 11px; color: #08784f; background: var(--select-teal); font-family: inherit; font-size: 16px; font-weight: 800; cursor: pointer; transition: background .18s ease, transform .18s ease; }
 .selectButton:hover { transform: translateY(-1px); background: #8ce9e2; }
 .srOnly { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 
-.footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 38px; padding-top: 23px; border-top: 1px solid rgba(103, 222, 214, .18); }
+.footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 38px; padding-top: 23px; border-top: 1px solid #dce6e4; }
 .footer > p { display: flex; align-items: center; flex-wrap: wrap; gap: 13px; margin: 0; color: var(--select-soft); font-size: 15px; }
 .footer > p a { display: inline-flex; align-items: center; gap: 5px; color: var(--select-teal); font-weight: 700; }
-.footer > p a:hover { color: #a4f4ee; }
+.footer > p a:hover { color: #08784f; }
 
 @media (max-width: 800px) {
   .page { padding: 24px 22px 32px; }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, Bell, Users } from "lucide-react";
-import { DEMO_ASTRONAUTS } from "@/lib/demo-data";
+import { DEMO_ALERTS, DEMO_ASTRONAUTS } from "@/lib/demo-data";
 import type { Alert, Astronaut, HealthRecord } from "@/types";
 import styles from "./mission-control.module.css";
 
@@ -8,7 +8,7 @@ type AlertWithCrew = Alert & { astronaut: Astronaut };
 const priority: Record<Alert["severity"], number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 const dateTime = (value: Date | string) => new Date(value).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-function statusText(status?: string) { return status === "RED" ? "Act now" : status === "AMBER" ? "Needs review" : "All clear"; }
+function statusText(status?: string) { return status === "RED" ? "Act now" : status === "AMBER" ? "Needs attention" : "All clear"; }
 function statusClass(status?: string) { return status === "RED" ? styles.statusRed : status === "AMBER" ? styles.statusAmber : styles.statusGreen; }
 function readingVerdict(value: number | null | undefined, min: number, max?: number) {
   if (value == null) return "Not recorded";
@@ -25,7 +25,10 @@ export default function MissionControlDashboard() {
   // Shared canonical fictional roster: deterministic on every open/reload.
   const crew = DEMO_ASTRONAUTS;
   const needsReview = crew.filter((member) => member.latestAssessment?.status === "AMBER" || member.latestAssessment?.status === "RED");
-  const alerts: AlertWithCrew[] = crew.flatMap((astronaut) => (astronaut.activeAlerts ?? []).filter((alert) => alert.status === "ACTIVE").map((alert) => ({ ...alert, astronaut })))
+  const alerts: AlertWithCrew[] = DEMO_ALERTS.filter((alert) => alert.status === "ACTIVE").flatMap((alert) => {
+    const astronaut = crew.find((member) => member.id === alert.userId);
+    return astronaut ? [{ ...alert, astronaut }] : [];
+  })
     .sort((a, b) => priority[a.severity] - priority[b.severity] || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const clearCount = crew.filter((member) => (member.latestAssessment?.status ?? "GREEN") === "GREEN").length;
 
@@ -36,7 +39,7 @@ export default function MissionControlDashboard() {
       {[
         { label: "Total crew", value: crew.length },
         { label: "All clear", value: clearCount },
-        { label: "Needs review", value: needsReview.length },
+        { label: "Needs attention", value: needsReview.length },
         { label: "Active alerts", value: alerts.length },
       ].map((item) => <article className={styles.summaryCard} key={item.label}><span>{item.label}</span><strong>{item.value}</strong></article>)}
     </section>

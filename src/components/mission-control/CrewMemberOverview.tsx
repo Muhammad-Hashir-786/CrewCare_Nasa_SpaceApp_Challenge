@@ -10,7 +10,7 @@ import styles from "./crew-overview.module.css";
 type QuestionInfo = { count: number; topics: string[]; found: boolean };
 type CrewSnapshot = Astronaut & { activeAlerts: Alert[]; healthRecords: HealthRecord[] };
 const dateText = (date: Date | string) => new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-const statusLabel = (status?: string) => status === "RED" ? "Act now" : status === "AMBER" ? "Needs review" : "All clear";
+const statusLabel = (status?: string) => status === "RED" ? "Act now" : status === "AMBER" ? "Needs attention" : "All clear";
 
 function mergeStoredAstronaut(base: Astronaut): CrewSnapshot {
   let records = [...(base.healthRecords ?? [])];
